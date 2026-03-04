@@ -131,6 +131,20 @@ impl HidDiscovery {
             .cloned()
     }
 
+    /// Find the IF1 (composite HID) interface for a dongle device.
+    /// IF1 hosts the patched HID descriptor with Feature Report ID 8.
+    fn find_dongle_if1_device(api: &HidApi, vid: u16, pid: u16) -> Option<hidapi::DeviceInfo> {
+        api.device_list()
+            .find(|d| {
+                d.vendor_id() == vid
+                    && d.product_id() == pid
+                    && d.interface_number() == 1
+                    && !Self::is_usb_feature_interface(d)
+                    && !Self::is_usb_input_interface(d)
+            })
+            .cloned()
+    }
+
     /// Find the input interface for a Bluetooth device (keyboard HID)
     fn find_bt_input_device(&self, api: &HidApi, vid: u16, pid: u16) -> Option<hidapi::DeviceInfo> {
         // Bluetooth keyboard uses standard HID keyboard usage (0x0006, page 0x0001)
@@ -279,9 +293,24 @@ impl DeviceDiscovery for HidDiscovery {
                 }
 
                 if device.info.transport_type == TransportType::HidDongle {
+                    // Open IF1 for dongle patch discovery (Feature Report ID 8)
+                    let if1_device =
+                        Self::find_dongle_if1_device(&api, device.info.vid, device.info.pid)
+                            .and_then(|info| match info.open_device(&api) {
+                                Ok(dev) => {
+                                    debug!("Opened dongle IF1 for patch discovery");
+                                    Some(dev)
+                                }
+                                Err(e) => {
+                                    debug!("Failed to open dongle IF1: {}", e);
+                                    None
+                                }
+                            });
+
                     Arc::new(HidDongleTransport::new(
                         feature_device,
                         input_device,
+                        if1_device,
                         device.info.clone(),
                     ))
                 } else {

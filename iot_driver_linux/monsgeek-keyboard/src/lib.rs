@@ -1422,6 +1422,35 @@ impl KeyboardInterface {
         }))
     }
 
+    /// Query dongle patch info via HID Feature Report ID 8.
+    ///
+    /// Returns `Some(PatchInfo)` if the dongle is running patched firmware,
+    /// `None` if it's stock or the transport doesn't support it (wired/BLE).
+    pub fn get_dongle_patch_info(&self) -> Result<Option<PatchInfo>, KeyboardError> {
+        let Some(buf) = self.transport.inner().get_dongle_patch_info()? else {
+            return Ok(None);
+        };
+        // buf[0] = report ID 8, buf[1..2] = magic, buf[3] = ver,
+        // buf[4..5] = caps LE16, buf[6..] = name
+        if buf.len() < 8 || buf[1] != 0xCA || buf[2] != 0xFE {
+            return Ok(None);
+        }
+        let version = buf[3];
+        let capabilities = u16::from_le_bytes([buf[4], buf[5]]);
+        let name_end = buf.len().min(14);
+        let name_bytes = &buf[6..name_end];
+        let name_len = name_bytes
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(name_bytes.len());
+        let name = String::from_utf8_lossy(&name_bytes[..name_len]).to_string();
+        Ok(Some(PatchInfo {
+            version,
+            capabilities,
+            name,
+        }))
+    }
+
     /// Subscribe to timestamped vendor events via broadcast channel
     ///
     /// Returns a receiver for asynchronous vendor event notifications.

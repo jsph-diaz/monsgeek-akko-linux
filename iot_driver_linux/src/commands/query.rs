@@ -109,6 +109,43 @@ pub fn info(printer_config: Option<PrinterConfig>) -> CommandResult {
         }
     }
 
+    // Dongle patch info (Feature Report ID 8) — only available on dongle transport
+    match transport.inner().get_dongle_patch_info() {
+        Ok(Some(buf)) => {
+            if buf.len() >= 8
+                && buf[1] == protocol::patch_info::MAGIC_HI
+                && buf[2] == protocol::patch_info::MAGIC_LO
+            {
+                let patch_ver = buf[3];
+                let caps = u16::from_le_bytes([buf[4], buf[5]]);
+                let name_end = buf.len().min(14);
+                let name_bytes = &buf[6..name_end];
+                let name_len = name_bytes
+                    .iter()
+                    .position(|&b| b == 0)
+                    .unwrap_or(name_bytes.len());
+                let name = String::from_utf8_lossy(&name_bytes[..name_len]);
+                let cap_names = protocol::patch_info::capability_names(caps);
+                if cap_names.is_empty() {
+                    println!("Dongle:    {} v{} (no features enabled).", name, patch_ver);
+                } else {
+                    println!(
+                        "Dongle:    {} v{} [{}]",
+                        name,
+                        patch_ver,
+                        cap_names.join(", ")
+                    );
+                }
+            } else {
+                println!("Dongle:    Stock firmware (no patch support).");
+            }
+        }
+        Ok(None) => {} // Not a dongle transport, skip silently
+        Err(_) => {
+            println!("Dongle:    Stock firmware (no patch support).");
+        }
+    }
+
     Ok(())
 }
 

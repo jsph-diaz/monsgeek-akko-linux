@@ -901,6 +901,14 @@ pub mod patch_info {
     pub const CAP_BATTERY: u16 = 1 << 0;
     /// Capability: LED streaming (0xE8)
     pub const CAP_LED_STREAM: u16 = 1 << 1;
+    /// Capability: Debug log (0xE9)
+    pub const CAP_DEBUG_LOG: u16 = 1 << 2;
+    /// Capability: Consumer report fix (keyboard encoder over dongle)
+    pub const CAP_CONSUMER_FIX: u16 = 1 << 3;
+    /// Capability: Consumer redirect (dongle intercepts sub=1 for consumer)
+    pub const CAP_CONSUMER_REDIRECT: u16 = 1 << 4;
+    /// Capability: Speed gate NOP (dongle USB speed check bypassed)
+    pub const CAP_SPEED_GATE_NOP: u16 = 1 << 5;
 
     pub fn capability_names(caps: u16) -> Vec<&'static str> {
         let mut names = Vec::new();
@@ -909,6 +917,18 @@ pub mod patch_info {
         }
         if caps & CAP_LED_STREAM != 0 {
             names.push("led_stream");
+        }
+        if caps & CAP_DEBUG_LOG != 0 {
+            names.push("debug_log");
+        }
+        if caps & CAP_CONSUMER_FIX != 0 {
+            names.push("consumer_fix");
+        }
+        if caps & CAP_CONSUMER_REDIRECT != 0 {
+            names.push("consumer_redirect");
+        }
+        if caps & CAP_SPEED_GATE_NOP != 0 {
+            names.push("speed_gate_nop");
         }
         names
     }

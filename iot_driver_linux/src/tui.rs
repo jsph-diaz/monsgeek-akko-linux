@@ -92,6 +92,8 @@ struct App {
     depth_last_update: Vec<Instant>,          // Last update time per key (for stale detection)
     // Patch info (custom firmware capabilities)
     patch_info: Option<PatchInfoData>,
+    // Dongle patch info (custom dongle firmware capabilities)
+    dongle_patch_info: Option<PatchInfoData>,
     // Dongle info (for 2.4GHz dongle)
     dongle_info: Option<monsgeek_transport::DongleInfo>,
     dongle_status: Option<monsgeek_transport::DongleStatus>,
@@ -1402,6 +1404,7 @@ struct LoadingStates {
     precision: LoadState,
     sleep_time: LoadState,
     patch_info: LoadState,
+    dongle_patch_info: LoadState,
     firmware_check: LoadState, // server firmware version check
     // Other tabs
     triggers: LoadState, // tab 3
@@ -1425,6 +1428,7 @@ enum AsyncResult {
     Precision(Result<Precision, String>),
     SleepTime(Result<SleepTimeSettings, String>),
     PatchInfo(Result<PatchInfoData, String>),
+    DonglePatchInfo(Result<PatchInfoData, String>),
     FirmwareCheck(FirmwareCheckResult),
     // Other tab results
     Triggers(Result<TriggerSettings, String>),
@@ -1695,6 +1699,7 @@ impl App {
             depth_last_update: Vec::new(),
             // Patch info
             patch_info: None,
+            dongle_patch_info: None,
             // Dongle info
             dongle_info: None,
             dongle_status: None,
@@ -2004,6 +2009,27 @@ impl App {
                         Err(e) => Err(e.to_string()),
                     };
                 let _ = tx.send(AsyncResult::PatchInfo(result));
+            });
+        }
+
+        // Dongle patch info (Feature Report ID 8)
+        {
+            let kb = keyboard.clone();
+            let tx = tx.clone();
+            self.loading.dongle_patch_info = LoadState::Loading;
+            tokio::spawn(async move {
+                use crate::protocol::patch_info;
+
+                let result = match kb.get_dongle_patch_info() {
+                    Ok(Some(pi)) => Ok(PatchInfoData {
+                        name: pi.name,
+                        version: pi.version,
+                        capabilities: patch_info::capability_names(pi.capabilities),
+                    }),
+                    Ok(None) => Err("not available".to_string()),
+                    Err(e) => Err(e.to_string()),
+                };
+                let _ = tx.send(AsyncResult::DonglePatchInfo(result));
             });
         }
     }
@@ -2770,6 +2796,13 @@ impl App {
             }
             AsyncResult::PatchInfo(Err(_)) => {
                 self.loading.patch_info = LoadState::Error;
+            }
+            AsyncResult::DonglePatchInfo(Ok(data)) => {
+                self.dongle_patch_info = Some(data);
+                self.loading.dongle_patch_info = LoadState::Loaded;
+            }
+            AsyncResult::DonglePatchInfo(Err(_)) => {
+                self.loading.dongle_patch_info = LoadState::Loaded; // Not an error, just not available
             }
             AsyncResult::FirmwareCheck(result) => {
                 self.firmware_check = Some(result.clone());
@@ -4720,6 +4753,42 @@ fn render_device_info(f: &mut Frame, app: &mut App, area: Rect) {
             },
         ])),
     ));
+    // Dongle patch info (only shown when available via dongle transport)
+    if matches!(
+        loading.dongle_patch_info,
+        LoadState::Loading | LoadState::Loaded
+    ) {
+        items.push((
+            InfoTag::ReadOnly,
+            ListItem::new(Line::from(vec![
+                Span::raw("Dongle patch:   "),
+                match loading.dongle_patch_info {
+                    LoadState::NotLoaded | LoadState::Loading => {
+                        Span::styled(spinner.to_string(), Style::default().fg(Color::Yellow))
+                    }
+                    LoadState::Loaded => {
+                        if let Some(ref pi) = app.dongle_patch_info {
+                            let caps = if pi.capabilities.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" [{}]", pi.capabilities.join(", "))
+                            };
+                            Span::styled(
+                                format!("{} v{}{}", pi.name, pi.version, caps),
+                                Style::default().fg(Color::LightCyan),
+                            )
+                        } else {
+                            Span::styled("None".to_string(), Style::default().fg(Color::DarkGray))
+                        }
+                    }
+                    LoadState::Error => {
+                        Span::styled("None".to_string(), Style::default().fg(Color::DarkGray))
+                    }
+                },
+            ])),
+        ));
+    }
+
     items.push((
         InfoTag::FirmwareCheck,
         ListItem::new(Line::from(vec![

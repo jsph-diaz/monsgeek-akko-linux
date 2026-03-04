@@ -25,8 +25,10 @@ use crate::Transport;
 /// Flow control (polling, retries, caching, serialization) lives in
 /// `FlowControlTransport`.
 pub struct HidDongleTransport {
-    /// Feature device for HID reports
+    /// Feature device for HID reports (IF2 — vendor interface)
     device: Mutex<HidDevice>,
+    /// IF1 device for patch discovery (Feature Report ID 8 lives on IF1)
+    if1_device: Option<Mutex<HidDevice>>,
     /// Device information
     info: TransportDeviceInfo,
     /// Shared event subsystem (reader thread, broadcast, shutdown)
@@ -38,6 +40,7 @@ impl HidDongleTransport {
     pub fn new(
         feature_device: HidDevice,
         input_device: Option<HidDevice>,
+        if1_device: Option<HidDevice>,
         info: TransportDeviceInfo,
     ) -> Self {
         let events =
@@ -45,6 +48,7 @@ impl HidDongleTransport {
 
         Self {
             device: Mutex::new(feature_device),
+            if1_device: if1_device.map(Mutex::new),
             info,
             events,
         }
@@ -160,6 +164,20 @@ impl Transport for HidDongleTransport {
             max_packet_size: buf[3],
             firmware_version: buf[8],
         }))
+    }
+
+    fn get_dongle_patch_info(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        // Patch discovery (Feature Report ID 8) is on IF1, not IF2
+        let device = match &self.if1_device {
+            Some(dev) => dev.lock(),
+            None => return Ok(None),
+        };
+        let mut buf = vec![0u8; REPORT_SIZE];
+        buf[0] = 8; // Report ID 8
+        match device.get_feature_report(&mut buf) {
+            Ok(_) => Ok(Some(buf)),
+            Err(_) => Ok(None),
+        }
     }
 
     fn query_rf_info(&self) -> Result<Option<RfInfo>, TransportError> {

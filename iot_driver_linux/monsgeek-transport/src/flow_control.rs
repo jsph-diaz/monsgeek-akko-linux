@@ -436,6 +436,10 @@ impl Transport for FlowControlTransport {
     fn query_rf_info(&self) -> Result<Option<crate::types::RfInfo>, TransportError> {
         self.inner.query_rf_info()
     }
+
+    fn get_dongle_patch_info(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        self.inner.get_dongle_patch_info()
+    }
 }
 
 // ============================================================================

@@ -167,6 +167,12 @@ pub trait Transport: Send + Sync {
     fn subscribe_events(&self) -> Option<broadcast::Receiver<TimestampedEvent>> {
         None
     }
+
+    /// Query dongle patch info via HID Feature Report ID 8.
+    /// Returns raw report bytes on success, None if not supported.
+    fn get_dongle_patch_info(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        Ok(None)
+    }
 }
 
 /// Type alias for a boxed transport
