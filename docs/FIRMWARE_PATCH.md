@@ -10,11 +10,15 @@ Custom firmware patches for the MonsGeek M1 V5 keyboard and its 2.4GHz wireless 
 - **LED streaming** — Per-key RGB control from the host. The driver can push GIF animations frame-by-frame to the keyboard LEDs at ~30fps.
 - **Debug log** — Ring buffer readable over HID for diagnostics (developer use).
 - **RTT telemetry** — SEGGER RTT channel for live battery ADC/charger monitoring over SWD (developer use).
+- **Consumer control fix** — Reroutes encoder consumer data to the correct RF sub-type for dongle mode. See [consumer_report_dongle_misroute](bugs/consumer_report_dongle_misroute.txt).
+- **Depth monitor unlock** — Enables magnetism depth reports on USB and 2.4GHz (stock limits to Bluetooth only). See [depth_report_speed_gate_bug](bugs/depth_report_speed_gate_bug.txt).
 
 ### Dongle patch
 
 - **Battery over USB HID** — Same standard HID battery as the keyboard patch, but for the wireless path. The dongle already caches the keyboard's battery level from RF packets — this patch exposes it to the host via HID descriptors.
 - **Proactive updates** — Pushes battery changes to the host as HID Input reports whenever the value changes, so the desktop battery indicator updates without polling.
+- **Consumer control fix** — Fixes volume knob and consumer keys over 2.4GHz (stock firmware misroutes them). See [consumer_report_dongle_misroute](bugs/consumer_report_dongle_misroute.txt).
+- **Speed gate fix** — NOPs a USB speed check that silences all non-keyboard HID reports. See [depth_report_speed_gate_bug](bugs/depth_report_speed_gate_bug.txt).
 
 ### What stays the same
 
@@ -205,7 +209,7 @@ Hook modes:
   - Diagnostic counters
 ```
 
-**Hooks** (4 total, ~1906 bytes):
+**Hooks** (5 total):
 
 | Hook | Target | Mode | Purpose |
 |------|--------|------|---------|
@@ -213,6 +217,7 @@ Hook modes:
 | `hid_class_setup` | `hid_class_setup_handler` (0x0801474C) | filter | Intercepts GET_REPORT for battery Feature report (ID 7) |
 | `usb_connect` | `usb_otg_device_connect` (0x08018690) | filter | Patches descriptors before USB enumeration |
 | `battery_monitor` | `battery_level_monitor` (0x0801695C) | before | Emits RTT telemetry for ADC/battery debugging |
+| `dongle_reports` | `build_dongle_reports` (0x080174C0) | before | Reroutes consumer data to correct RF sub-type |
 
 **Binary patches** (applied at build time):
 - Literal pool at 0x0801485C: pointer redirected from original IF1 rdesc to `extended_rdesc`
@@ -238,13 +243,13 @@ Hook modes:
   - Static report buffers
 ```
 
-**Hooks** (3 total, ~290 bytes):
+**Hooks** (3 total, ~542 bytes):
 
 | Hook | Target | Mode | Purpose |
 |------|--------|------|---------|
 | `usb_init` | `usb_init` (0x080069D8) | before | Populates extended_rdesc before USB enumeration |
 | `hid_class_setup` | `hid_class_setup_handler` (0x080071B4) | filter | Intercepts GET_REPORT for battery; patches descriptors |
-| `rf_packet_dispatch` | `rf_packet_dispatch` (0x080059FC) | before | Pushes Input reports on battery/charging changes |
+| `rf_packet_dispatch` | `rf_packet_dispatch` (0x080059FC) | before | Consumer redirect (sub=1→EP2) + battery change notifications |
 
 **Key differences from keyboard patch**:
 - Setup packet is a separate parameter (r1), not embedded in udev struct

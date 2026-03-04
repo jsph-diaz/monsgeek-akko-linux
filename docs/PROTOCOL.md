@@ -1118,6 +1118,9 @@ dfu-util -a 0 -d 2e3c:df11 --dfuse-address 0x08028000 -D ff_2k.bin
 > chunked SET commands. A malicious or buggy host can corrupt RAM or trigger
 > stack buffer overflows. The limits below are derived from the firmware
 > decompilation and must be enforced by the host driver.
+>
+> Full analysis with reproduction steps: [bugs/oob_hazards.txt](bugs/oob_hazards.txt).
+> See also: [bugs/get_macro_stride_bug.txt](bugs/get_macro_stride_bug.txt) (GET_MACRO read stride mismatch).
 
 ### Chunked Write Protocol
 

@@ -345,6 +345,19 @@ From the AT32F405 reference manual analysis:
 - **No hardware mechanism can compensate the USB VSSA ground shift.** Software
   offset compensation based on connection mode is the only viable fix.
 
+## Known Firmware Bugs
+
+Detailed bug reports with reproduction steps, disassembly, and suggested fixes are in [`docs/bugs/`](bugs/):
+
+| Bug | Firmware | Severity | Report |
+|-----|----------|----------|--------|
+| OOB hazards (chunk_index, slot_id, macro_id, profile_id) | Keyboard v407 | Code execution / brick | [oob_hazards.txt](bugs/oob_hazards.txt) |
+| Consumer reports misrouted on 2.4GHz dongle | KB v407 + Dongle v903 | Feature broken | [consumer_report_dongle_misroute.txt](bugs/consumer_report_dongle_misroute.txt) |
+| Depth reports silenced on dongle + USB | KB v407 + Dongle v903 | Feature broken | [depth_report_speed_gate_bug.txt](bugs/depth_report_speed_gate_bug.txt) |
+| GET_MACRO read stride mismatch | Keyboard v407 | Data corruption | [get_macro_stride_bug.txt](bugs/get_macro_stride_bug.txt) |
+
+All reports are bilingual (English + Chinese).
+
 ## Firmware Versions
 
 | Version | Size | Notes |
