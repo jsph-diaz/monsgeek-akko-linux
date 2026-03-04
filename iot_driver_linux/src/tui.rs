@@ -3680,7 +3680,7 @@ pub async fn run() -> io::Result<()> {
                                     app.remap_selected += 1;
                                     app.sync_binding_editor();
                                 }
-                            } else {
+                            } else if app.selected < app.info_tags.len().saturating_sub(1) {
                                 app.selected += 1;
                             }
                         }
@@ -5345,8 +5345,10 @@ fn render_device_info(f: &mut Frame, app: &mut App, area: Rect) {
         )
         .highlight_symbol("> ");
 
+    // Clamp cursor to actual list length (list can grow/shrink as async data arrives)
+    app.selected = app.selected.min(max_idx);
     let mut state = ListState::default();
-    state.select(Some(app.selected.min(max_idx)));
+    state.select(Some(app.selected));
     f.render_stateful_widget(list, area, &mut state);
 }
 
