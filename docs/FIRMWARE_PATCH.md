@@ -4,21 +4,22 @@ Custom firmware patches for the MonsGeek M1 V5 keyboard and its 2.4GHz wireless 
 
 ## What the patches do
 
-### Keyboard patch
+### Keyboard patch (MONSMOD)
 
 - **Battery over USB HID** — Exposes battery level (0–100%) and charging status as a standard HID power supply. Desktop environments (KDE, GNOME) show battery in the system tray automatically.
 - **LED streaming** — Per-key RGB control from the host. The driver can push GIF animations frame-by-frame to the keyboard LEDs at ~30fps.
 - **Debug log** — Ring buffer readable over HID for diagnostics (developer use).
 - **RTT telemetry** — SEGGER RTT channel for live battery ADC/charger monitoring over SWD (developer use).
-- **Consumer control fix** — Reroutes encoder consumer data to the correct RF sub-type for dongle mode. See [consumer_report_dongle_misroute](bugs/consumer_report_dongle_misroute.txt).
-- **Depth monitor unlock** — Enables magnetism depth reports on USB and 2.4GHz (stock limits to Bluetooth only). See [depth_report_speed_gate_bug](bugs/depth_report_speed_gate_bug.txt).
+- **Consumer control fix** — Reroutes encoder consumer data to the correct RF sub-type for dongle mode, and NOPs the stock firmware's premature buffer zeroing so consumer data survives until transmission. See [consumer_report_dongle_misroute](bugs/consumer_report_dongle_misroute.txt).
+- **Depth monitor unlock** — Enables magnetism depth reports on USB and 2.4GHz (stock limits to Bluetooth only, and blocks 8KHz polling rates). See [depth_report_speed_gate_bug](bugs/depth_report_speed_gate_bug.txt).
 
-### Dongle patch
+### Dongle patch (MONSDON)
 
 - **Battery over USB HID** — Same standard HID battery as the keyboard patch, but for the wireless path. The dongle already caches the keyboard's battery level from RF packets — this patch exposes it to the host via HID descriptors.
 - **Proactive updates** — Pushes battery changes to the host as HID Input reports whenever the value changes, so the desktop battery indicator updates without polling.
 - **Consumer control fix** — Fixes volume knob and consumer keys over 2.4GHz (stock firmware misroutes them). See [consumer_report_dongle_misroute](bugs/consumer_report_dongle_misroute.txt).
 - **Speed gate fix** — NOPs a USB speed check that silences all non-keyboard HID reports. See [depth_report_speed_gate_bug](bugs/depth_report_speed_gate_bug.txt).
+- **Patch discovery** — Responds to HID Feature Report ID 8 on IF1 with patch identity (name, version, capabilities), allowing the driver to distinguish dongle patch info from keyboard patch info.
 
 ### What stays the same
 
@@ -62,18 +63,19 @@ LED streaming temporarily overrides the current LED effect. The built-in effect 
 
 ### Patch detection
 
-The driver auto-detects patched firmware via the 0xE7 discovery command:
+The driver auto-detects patched firmware:
+
+- **Keyboard**: 0xE7 vendor command (relayed through dongle if wireless)
+- **Dongle**: HID Feature Report ID 8 on IF1 (direct, no relay needed)
 
 ```bash
-# Shows patch name, version, and capabilities
 iot_driver info
-# → Patch: MONSMOD v1 [battery, led_stream]
+# → Patch:  MONSMOD v1 [battery, led_stream, debug_log, consumer_fix]
+# → Dongle: MONSDON v1 [battery, consumer_redirect, speed_gate_nop]
 
-# Or on stock firmware:
+# On stock firmware:
 # → Patch: Stock firmware (no patch support).
 ```
-
-This works over both wired USB and 2.4GHz dongle (the command relays through the dongle to the keyboard).
 
 ## Comparison: firmware patch vs eBPF
 
@@ -149,12 +151,13 @@ make
 # Apply to firmware image
 make patch
 
-# Flash via ROM DFU (bridge BOOT0 to 3.3V, plug USB)
-dfu-util -a 0 -d 2e3c:df11 --dfuse-address 0x08000000 \
-  -D ../dfu_dumps/dongle_patched_256k.bin
+# Flash via driver (enters DFU automatically)
+cd ../../../iot_driver_linux
+cargo run --release -- firmware flash --dongle -y \
+  ../firmwares/DONGLE_RY6108_RF_KB_V903/dfu_dumps/dongle_patched_256k.bin
 ```
 
-**Note**: The dongle must be flashed via the AT32F405's built-in ROM DFU bootloader (BOOT0 pin), not the RongYuan application bootloader. See [HARDWARE.md](HARDWARE.md) for BOOT0 pad location and DFU recovery procedure.
+**Note**: The dongle can also be flashed via the AT32F405's built-in ROM DFU bootloader (BOOT0 pin). See [HARDWARE.md](HARDWARE.md) for BOOT0 pad location and DFU recovery procedure.
 
 ## Technical reference
 
@@ -217,14 +220,19 @@ Hook modes:
 |------|--------|------|---------|
 | `vendor_dispatch` | `vendor_command_dispatch` (0x08013304) | filter | Intercepts 0xE7/0xE8/0xE9 vendor commands |
 | `hid_class_setup` | `hid_class_setup_handler` (0x0801474C) | filter | Intercepts GET_REPORT for battery Feature report (ID 7) |
-| `usb_connect` | `usb_otg_device_connect` (0x08018690) | filter | Patches descriptors before USB enumeration |
+| `usb_connect` | `usb_otg_device_connect` (0x08018690) | filter | Patches descriptors + inits RTT before USB enumeration |
 | `battery_monitor` | `battery_level_monitor` (0x0801695C) | before | Emits RTT telemetry for ADC/battery debugging |
-| `dongle_reports` | `build_dongle_reports` (0x080174C0) | before | Reroutes consumer data to correct RF sub-type |
+| `dongle_reports` | `build_dongle_reports` (0x080174C0) | before | Consumer auto-release + RTT bitmap telemetry |
 
 **Binary patches** (applied at build time):
-- Literal pool at 0x0801485C: pointer redirected from original IF1 rdesc to `extended_rdesc`
-- CMP/MOV at 0x080147FC/0x08014800: descriptor length cap changed from 171 to 217
-- wDescriptorLength in SRAM config descriptors: patched at runtime by `handle_usb_connect`
+
+| Address | What | Description |
+|---------|------|-------------|
+| 0x0801485C | Literal pool | IF1 rdesc pointer → `extended_rdesc` in PATCH_SRAM |
+| 0x080147FC, 0x08014800 | CMP/MOV | IF1 rdesc length cap: 171 → 217 |
+| 0x0801282A | 4× NOP | Depth monitor: remove 8KHz polling rate gate |
+| 0x08012836 | 4× NOP | Depth monitor: remove Bluetooth-only gate |
+| 0x080124FA | 7× NOP | Consumer fix: NOP `hid_report_check_send` block 3's premature buffer zeroing |
 
 **Battery HID descriptor** (46 bytes appended to IF1):
 - Report ID 7, Feature + Input reports
@@ -244,40 +252,73 @@ Hook modes:
 ```
 0x20002000 - 0x200023FF   PATCH_SRAM (1KB)
   - extended_rdesc buffer (217 bytes)
-  - Static report buffers
+  - Static report buffers (battery, patch discovery)
 ```
 
-**Hooks** (3 total, ~542 bytes):
+**Hooks** (3 total, ~514 bytes):
 
 | Hook | Target | Mode | Purpose |
 |------|--------|------|---------|
 | `usb_init` | `usb_init` (0x080069D8) | before | Populates extended_rdesc before USB enumeration |
-| `hid_class_setup` | `hid_class_setup_handler` (0x080071B4) | filter | Intercepts GET_REPORT for battery; patches descriptors |
-| `rf_packet_dispatch` | `rf_packet_dispatch` (0x080059FC) | before | Consumer redirect (sub=1→EP2) + battery change notifications |
+| `hid_class_setup` | `hid_class_setup_handler` (0x080071B4) | filter | Battery (Report ID 7) + patch discovery (Report ID 8); patches descriptors |
+| `rf_packet_dispatch` | `rf_packet_dispatch` (0x080059FC) | before | Battery change notifications via EP2 Input reports |
+
+**Binary patches** (applied at build time):
+
+| Address | What | Description |
+|---------|------|-------------|
+| 0x080073C8 | Literal pool | IF1 rdesc pointer → `extended_rdesc` in PATCH_SRAM |
+| 0x080072C6, 0x080072CA | CMP/MOV | IF1 rdesc length cap: 171 → 217 |
+| 0x08006A34 | 2× NOP | Speed gate: NOP USB Full-Speed-only check in `rf_tx_handler` |
+
+**Consumer control fix** — The consumer redirect is a two-sided fix:
+1. Keyboard side: `dongle_reports` hook reroutes encoder data to sub=3 (consumer sub-type) instead of sub=1 (keyboard)
+2. Dongle side: stock firmware now handles sub=3 → consumer_ready → EP2 natively (with speed gate NOP'd)
 
 **Key differences from keyboard patch**:
 - Setup packet is a separate parameter (r1), not embedded in udev struct
 - Uses OTGHS (not OTGFS1), `g_usb_device` at 0x20000484 (no +4 offset)
 - Battery data comes from `dongle_state.kb_battery_info` (+0xDB) and `.kb_charging` (+0xDC), cached from RF packets
-- No vendor command dispatch — 0xE7 queries relay through to the keyboard
+- No vendor command dispatch — 0xE7/0xE8/0xE9 queries relay through the dongle to the keyboard
 
-### Vendor command protocol (keyboard only)
+### Patch discovery protocol
 
-| Command | Name | Direction | Description |
-|---------|------|-----------|-------------|
-| 0xE7 | PATCH_INFO | GET | Returns magic 0xCAFE, version, capabilities, name "MONSMOD", diagnostics |
-| 0xE8 | LED_STREAM | SET | Per-key RGB: page 0–6 = 18 keys each, 0xFF = commit, 0xFE = release |
-| 0xE9 | DEBUG_LOG | GET | Ring buffer read: page 0–9, 56 bytes/page, 512 byte total |
+Both patches expose their identity for driver auto-detection:
 
-**0xE7 response layout** (in GET_REPORT Feature response):
+**Keyboard** — 0xE7 vendor command (via SET_REPORT/GET_REPORT on IF2):
 
 | Offset | Field | Description |
 |--------|-------|-------------|
 | 1–2 | Magic | 0xCA 0xFE |
 | 3 | Version | Patch version (currently 1) |
-| 4–5 | Capabilities | Bitmask: bit 0 = battery, bit 1 = led_stream, bit 2 = debug_log |
+| 4–5 | Capabilities | Bitmask (LE16), see table below |
 | 6–13 | Name | NUL-padded ASCII ("MONSMOD") |
 | 14+ | Diagnostics | HID setup call counts, last setup packet, battery level, ADC values |
+
+**Dongle** — HID Feature Report ID 8 (via GET_FEATURE on IF1):
+
+| Offset | Field | Description |
+|--------|-------|-------------|
+| 0 | Report ID | 0x08 |
+| 1–2 | Magic | 0xCA 0xFE |
+| 3 | Version | Patch version (currently 1) |
+| 4–5 | Capabilities | Bitmask (LE16), see table below |
+| 6–13 | Name | NUL-padded ASCII ("MONSDON") |
+
+The dongle uses a HID Feature report instead of a vendor command because 0xE7 is forwarded through to the keyboard — there's no way to intercept it dongle-side.
+
+**Capability bits** (shared bitmask format):
+
+| Bit | Name | Keyboard | Dongle |
+|-----|------|----------|--------|
+| 0 | `battery` | HID battery descriptor + GET_REPORT | HID battery via dongle_state cache |
+| 1 | `led_stream` | Per-key RGB streaming (0xE8) | — |
+| 2 | `debug_log` | Ring buffer debug log (0xE9) | — |
+| 3 | `consumer_fix` | Encoder data rerouted to sub=3 | — |
+| 4 | `consumer_redirect` | — | Sub=3 consumer → EP2 (native path) |
+| 5 | `speed_gate_nop` | — | USB speed check NOPd |
+
+Current values: MONSMOD = 0x000F, MONSDON = 0x0031.
 
 ### Symbol export pipeline
 
