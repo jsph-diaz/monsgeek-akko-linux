@@ -71,6 +71,21 @@ BINARY_PATCHES = [
     # (via sub=3 in rf_packet_dispatch, triggered by our keyboard hook).
 ]
 
+# ── Memory map ───────────────────────────────────────────────────────────────
+# Flash regions auto-derived from symbols.json memory_blocks.
+# SRAM regions resolved from Ghidra labels.
+
+SRAM_LANDMARKS = [
+    ("g_spi_flags",        "SPI flags"),
+    ("g_class_handler",    "USB class handler"),
+    ("g_if0_hid_desc",     "USB descriptors"),
+    ("g_dongle_state",     "Dongle state"),
+    ("g_usb_device",       "USB device"),
+    ("g_ep1_report_buf",   "EP report bufs"),
+    ("g_spi_buf",          "SPI buffer"),
+    ("g_string_desc_buf",  "String descs"),
+]
+
 project = PatchProject(
     hooks=HOOKS,
     binary_patches=BINARY_PATCHES,
@@ -84,6 +99,10 @@ project = PatchProject(
         patch_zone_start=0x0800B000,
         patch_zone_end=0x0800D7FF,
     ),
+    sram_landmarks=SRAM_LANDMARKS,
+    flash_size=128 * 1024,    # AT32F405KBU7
+    sram_size=96 * 1024,      # 0x20000000-0x20017FFF (all AT32F405 variants)
+    initial_sp=0x200012B0,    # from vector table
 )
 
 if __name__ == '__main__':

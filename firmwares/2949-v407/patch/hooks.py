@@ -110,6 +110,23 @@ BINARY_PATCHES = [
                 "hid_report_check_send blk3: NOP consumer zero+bitmap (7×NOP)"),
 ]
 
+# ── Memory map ───────────────────────────────────────────────────────────────
+# Flash regions auto-derived from symbols.json memory_blocks.
+# SRAM regions resolved from Ghidra labels (symbol name → display name).
+# Addresses come from the export — no hardcoded addresses needed.
+
+SRAM_LANDMARKS = [
+    ("g_systick_saved_ctrl",  "HID + descriptors"),
+    ("g_desct_device",        "Kbd state"),
+    ("g_led_dma_buf",         "LED DMA buf"),
+    ("g_led_frame_buf",       "LED frame buf"),
+    ("g_per_key_state",       "Per-key + WS2812"),
+    ("g_mag_engine_state",    "Mag engine"),
+    ("g_usb_device",          "USB + RF + config"),
+    ("g_vendor_cmd_buffer",   "Vendor cmd buf"),
+    ("g_led_anim_state",      "LED anim state"),
+]
+
 project = PatchProject(
     hooks=HOOKS,
     binary_patches=BINARY_PATCHES,
@@ -119,6 +136,9 @@ project = PatchProject(
     elf_path=SCRIPT_DIR / "hook.elf",
     build_dir=SCRIPT_DIR,
     engine_kwargs=dict(file_base=0x08005000),
+    sram_landmarks=SRAM_LANDMARKS,
+    flash_size=256 * 1024,   # AT32F405RCT7
+    sram_size=96 * 1024,     # 0x20000000-0x20017FFF
 )
 
 if __name__ == '__main__':
