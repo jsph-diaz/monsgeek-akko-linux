@@ -1,0 +1,335 @@
+Consumer Reports Misrouted on 2.4 GHz Dongle
+=============================================
+
+Firmware versions tested:
+  Keyboard: v407 (device ID 2949, AT32F405 8KMKB)
+  Dongle:   v903 (RY6108-RF-KB, AT32F405 8K-DGKB)
+
+Other versions not tested but likely share the same code.
+
+
+Overview
+--------
+
+Consumer control reports (volume knob, media keys, brightness) are
+misrouted when the keyboard is connected via the 2.4 GHz dongle. The
+host receives consumer usage codes as raw keyboard data, causing phantom
+modifier key presses (Ctrl/Shift sticking) instead of the intended
+volume/media actions.
+
+Two independent bugs contribute:
+
+  A. Keyboard: keycode_dispatch writes encoder consumer data into the
+     6KRO keyboard buffer with the wrong pending_reports_bitmap bit,
+     causing build_dongle_reports to send it as a mouse sub-type.
+
+  B. Dongle: rf_packet_dispatch routes sub=1 RF packets (which carry
+     consumer data after fix A) to EP1/IF0 (6KRO keyboard descriptor,
+     no report IDs). The consumer HID descriptor lives on IF1/EP2.
+
+The combined effect: consumer keys either arrive as garbage mouse data
+(unfixed) or as raw bytes on the keyboard interface where the kernel
+interprets consumer usage codes as modifier bits.
+
+
+A. Keyboard: Consumer → Wrong Bitmap Bit
+-----------------------------------------
+
+Affected function: keycode_dispatch (keyboard firmware)
+
+When a consumer key is triggered (encoder, keymap, or FN layer), the
+keycode dispatch case 3 handler writes the consumer usage code into
+g_hid_6kro_report.keys[1..3] and sets bit 0x04 in pending_reports_bitmap.
+
+The pending_reports_bitmap → sub-type mapping in build_dongle_reports:
+
+    Bit 0x01 → sub=0  (keyboard)
+    Bit 0x04 → sub=3  (mouse)        ← consumer data lands here
+    Bit 0x08 → sub=4  (dial/system control)
+    Bit 0x10 → sub=5  (extra/vendor)
+    Bit 0x20 → sub=1  (consumer)     ← correct destination
+    Bit 0x40 → sub=2  (NKRO)
+
+Consumer data sets bit 0x04 but should set bit 0x20. As a result,
+build_dongle_reports sends the consumer usage codes inside a sub=3
+(mouse) RF packet.
+
+Additionally, hid_report_check_send has two blocks that interfere with
+consumer data delivery:
+
+  Block 1 (0x080124B2): When the shared buffer at 0x20000054 contains
+  non-zero data, it zeroes the buffer AND sets bit 0x01 (keyboard sub=0)
+  in pending_reports_bitmap. This triggers a spurious keyboard report
+  after every consumer key event.
+
+  Block 2 (0x080124DA): When consumer_report_t at 0x2000004C contains
+  non-zero data, it zeroes it via dma_struct_default THEN sets bit 0x20.
+  If build_dongle_reports' timer gate deferred the send, the consumer
+  data is wiped before it can be read. This is a stock firmware bug
+  (never triggered in practice because encoder data goes through the
+  6KRO/bit 0x04 path, not consumer_report_t).
+
+Impact: Consumer keys produce no meaningful action over 2.4 GHz dongle.
+Instead, phantom modifier presses may occur.
+
+
+B. Dongle: Sub=1 Sent on Wrong USB Endpoint
+--------------------------------------------
+
+Affected function: rf_tx_handler (dongle firmware, 0x08006A2C)
+
+The dongle firmware's rf_tx_handler handles sub-type routing for
+incoming RF packets. The sub=1 code path copies data to g_ep1_report_buf
+(0x200007B4) and sends it on EP1 IN (0x81):
+
+    08006A58:  ldrb r0, [r1, #0x10F]  ; consumer_report[0] = report_type
+    08006A5C:  ldr  r1, [0x6e30]      ; r1 = g_ep1_report_buf (0x200007B4)
+    ...
+    08006A94:  movs r3, #8            ; len = 8
+    08006A98:  movs r1, #0x81         ; ep = EP1 IN
+    08006A9A:  ldr  r0, [0x6e28]      ; g_usb_device
+    08006A9C:  bl   usb_otg_in_ep_xfer_start
+
+EP1/IF0 has a plain 6KRO keyboard descriptor with no report IDs. The
+consumer data (Report ID 3, usage codes) is sent raw on this interface.
+The kernel's HID parser interprets byte[0]=0x03 as modifier bits
+(LCtrl + LShift), causing keys to "stick."
+
+The consumer HID descriptor (Report ID 3, Consumer Control usage page)
+lives on IF1/EP2, where all other non-boot report types are sent.
+
+The IF1 Report ID map:
+
+    ID 1: NKRO Keyboard  (sub=2 → EP2)
+    ID 2: System Control  (sub=4 → EP2)
+    ID 3: Consumer Control (sub=3 → EP2)  ← should go here
+    ID 5: Vendor Extra    (sub=5 → EP2)
+    ID 6: Mouse           (sub=0/7 → EP2)
+
+Sub=1 is the ONLY sub-type that uses EP1. All others correctly use EP2.
+This appears to be a copy-paste error from the keyboard path (sub=1 on
+the keyboard sends 6KRO data which correctly belongs on EP1).
+
+Data path field misidentification note: The dongle firmware's SRAM
+fields were mislabeled in the original codebase. What was called
+"consumer_report" is actually the 6KRO keyboard buffer (sub=1 → EP1).
+What was called "kbd_report" is actually mouse data (sub=0/7 → EP2,
+Report ID 6). What was called "mouse_btn" is actually consumer control
+(sub=3 → EP2, Report ID 3).
+
+
+Reproduction
+------------
+
+1. Connect keyboard to host via 2.4 GHz dongle
+2. Assign a consumer key (e.g. Volume Down = usage 0x00EA) to the
+   rotary encoder or any key position
+3. Press the key / turn the encoder
+4. Expected: Volume decreases (consumer control event on EP2, Report ID 3)
+5. Actual: Ctrl+Shift modifier keys activate and stick (raw bytes on EP1
+   interpreted as keyboard modifiers)
+
+Switching to USB (wired) or Bluetooth and repeating shows consumer keys
+working correctly, since those paths bypass the dongle's sub-type
+routing entirely.
+
+
+Fix
+---
+
+Keyboard side (bug A):
+
+1. Hook build_dongle_reports to intercept consumer events. When bit 0x04
+   is set and keys[1]==3 (consumer report type), copy the usage data to
+   consumer_report_t with Report ID 3, swap bitmap bit 0x04 → 0x20.
+
+2. NOP hid_report_check_send block 1 (0x080124B2): the STRB that sets
+   bitmap |= 0x01 after zeroing the buffer. Prevents spurious keyboard
+   reports.
+
+3. NOP hid_report_check_send block 2 (0x080124DA): the entire
+   ldr+bl+ldrb+orr+strb sequence (14 bytes). Prevents premature zeroing
+   of consumer_report_t before build_dongle_reports reads it.
+
+Dongle side (bug B):
+
+Hook rf_packet_dispatch (before). Detect sub=1 RF packets with
+report_type=3 (consumer control). Extract the usage code from
+rx_data[2..3], send it on EP2 (0x82) with Report ID 3 (Consumer
+Control descriptor on IF1). Clear rx_command to suppress the stock
+sub=1 handler that would misroute to EP1.
+
+    if (rx_command == 0x81 && rx_data[0] == 1 && rx_data[1] == 3) {
+        buf[0] = 3;              // Report ID 3
+        buf[1] = rx_data[2];     // usage_lo
+        buf[2] = rx_data[3];     // usage_hi
+        usb_otg_in_ep_xfer_start(usb_dev, 0x82, buf, 3);
+        rx_command = 0xFF;       // suppress stock handler
+    }
+
+
+Summary
+-------
+
+| # | Location | Bug | Effect |
+|---|----------|-----|--------|
+| A | KB keycode_dispatch | Consumer sets bit 0x04 (mouse) not 0x20 (consumer) | Data sent as mouse sub-type |
+| A1 | KB hid_report_check_send | Block 1 sets spurious keyboard bit 0x01 | Phantom keyboard reports |
+| A2 | KB hid_report_check_send | Block 2 zeros consumer_report_t too early | Consumer data lost before send |
+| B | Dongle rf_tx_handler | Sub=1 sent on EP1/IF0 instead of EP2/IF1 | Kernel misparses as keyboard modifiers |
+
+
+=========================================================================
+
+
+消费者控制报告在 2.4 GHz 接收器上被错误路由
+=========================================================================
+
+测试固件版本：
+  键盘：v407（设备 ID 2949，AT32F405 8KMKB）
+  接收器：v903（RY6108-RF-KB，AT32F405 8K-DGKB）
+
+其他版本未测试，但可能存在相同问题。
+
+
+概述
+----
+
+当键盘通过 2.4 GHz 接收器连接时，消费者控制报告（音量旋钮、媒体键、
+亮度键）被错误路由。主机将消费者 usage code 作为原始键盘数据接收，导致
+虚假的修饰键按下（Ctrl/Shift 卡住），而非预期的音量/媒体操作。
+
+两个独立的缺陷共同导致此问题：
+
+  A. 键盘端：keycode_dispatch 将旋钮消费者数据写入 6KRO 键盘缓冲区，
+     并设置了错误的 pending_reports_bitmap 位，导致 build_dongle_reports
+     将其作为鼠标子类型发送。
+
+  B. 接收器端：rf_packet_dispatch 将 sub=1 RF 数据包路由到 EP1/IF0
+    （6KRO 键盘描述符，无 Report ID），而消费者 HID 描述符位于 IF1/EP2。
+
+综合效果：消费者按键要么作为无意义的鼠标数据到达（未修复时），要么作为
+原始字节到达键盘接口，内核将消费者 usage code 解析为修饰键位。
+
+
+A. 键盘端：消费者 → 错误的位图位
+---------------------------------
+
+受影响函数：keycode_dispatch（键盘固件）
+
+当消费者按键被触发（旋钮、键位映射或 FN 层）时，keycode dispatch 的
+case 3 处理器将消费者 usage code 写入 g_hid_6kro_report.keys[1..3]，
+并在 pending_reports_bitmap 中设置位 0x04。
+
+build_dongle_reports 中 pending_reports_bitmap → 子类型的映射：
+
+    位 0x01 → sub=0（键盘）
+    位 0x04 → sub=3（鼠标）       ← 消费者数据落在这里
+    位 0x08 → sub=4（旋钮/系统控制）
+    位 0x10 → sub=5（扩展/厂商）
+    位 0x20 → sub=1（消费者）     ← 正确目标
+    位 0x40 → sub=2（NKRO）
+
+消费者数据设置位 0x04，但应设置位 0x20。因此，build_dongle_reports 将
+消费者 usage code 包装在 sub=3（鼠标）RF 数据包中发送。
+
+此外，hid_report_check_send 有两个代码块干扰消费者数据的传递：
+
+  代码块 1（0x080124B2）：当 0x20000054 处的共享缓冲区非零时，将其清零
+  并设置位 0x01（键盘 sub=0）。这在每次消费者按键事件后触发虚假的键盘
+  报告。
+
+  代码块 2（0x080124DA）：当 consumer_report_t（0x2000004C）非零时，
+  通过 dma_struct_default 清零，然后设置位 0x20。如果
+  build_dongle_reports 的定时器门控延迟了发送，消费者数据在被读取前就
+  被清除。这是固件原有缺陷（实际从未触发，因为旋钮数据走 6KRO/位 0x04
+  路径，不经过 consumer_report_t）。
+
+影响：通过 2.4 GHz 接收器时，消费者按键不产生有意义的操作。可能出现
+虚假的修饰键按下。
+
+
+B. 接收器端：Sub=1 发送到错误的 USB 端点
+-----------------------------------------
+
+受影响函数：rf_tx_handler（接收器固件，0x08006A2C）
+
+接收器固件的 rf_tx_handler 处理传入 RF 数据包的子类型路由。sub=1 代码
+路径将数据复制到 g_ep1_report_buf（0x200007B4）并通过 EP1 IN（0x81）
+发送：
+
+    08006A58:  ldrb r0, [r1, #0x10F]  ; consumer_report[0] = report_type
+    08006A5C:  ldr  r1, [0x6e30]      ; r1 = g_ep1_report_buf (0x200007B4)
+    ...
+    08006A94:  movs r3, #8            ; len = 8
+    08006A98:  movs r1, #0x81         ; ep = EP1 IN
+    08006A9A:  ldr  r0, [0x6e28]      ; g_usb_device
+    08006A9C:  bl   usb_otg_in_ep_xfer_start
+
+EP1/IF0 使用无 Report ID 的纯 6KRO 键盘描述符。消费者数据（Report ID 3，
+usage code）作为原始字节在此接口上发送。内核的 HID 解析器将 byte[0]=0x03
+解析为修饰键位（LCtrl + LShift），导致按键"卡住"。
+
+消费者 HID 描述符（Report ID 3，Consumer Control usage page）位于
+IF1/EP2，所有其他非启动报告类型都通过该端点发送。
+
+IF1 Report ID 映射：
+
+    ID 1: NKRO 键盘     (sub=2 → EP2)
+    ID 2: 系统控制       (sub=4 → EP2)
+    ID 3: 消费者控制     (sub=3 → EP2)  ← 应在此处
+    ID 5: 厂商扩展       (sub=5 → EP2)
+    ID 6: 鼠标           (sub=0/7 → EP2)
+
+Sub=1 是唯一使用 EP1 的子类型。所有其他子类型均正确使用 EP2。这似乎是
+从键盘路径复制粘贴时的错误（键盘上的 sub=1 发送 6KRO 数据，正确属于
+EP1）。
+
+
+复现步骤
+--------
+
+1. 通过 2.4 GHz 接收器连接键盘到主机
+2. 将消费者按键（例如音量减小 = usage 0x00EA）分配到旋钮或任意键位
+3. 按下按键 / 转动旋钮
+4. 预期：音量降低（EP2 上的消费者控制事件，Report ID 3）
+5. 实际：Ctrl+Shift 修饰键激活并卡住（EP1 上的原始字节被解析为键盘
+   修饰键）
+
+切换到 USB（有线）或蓝牙模式重复上述步骤，消费者按键正常工作，因为
+这些路径完全绕过接收器的子类型路由。
+
+
+修复方案
+--------
+
+键盘端（缺陷 A）：
+
+1. 在 build_dongle_reports 上挂钩拦截消费者事件。当位 0x04 置位且
+   keys[1]==3（消费者报告类型）时，将 usage 数据复制到 consumer_report_t
+   并设置 Report ID 3，将位图位从 0x04 交换为 0x20。
+
+2. NOP 掉 hid_report_check_send 代码块 1（0x080124B2）：清零缓冲区后
+   设置 bitmap |= 0x01 的 STRB 指令。防止虚假键盘报告。
+
+3. NOP 掉 hid_report_check_send 代码块 2（0x080124DA）：整个
+   ldr+bl+ldrb+orr+strb 序列（14 字节）。防止 consumer_report_t 在
+   build_dongle_reports 读取前被过早清零。
+
+接收器端（缺陷 B）：
+
+在 rf_packet_dispatch 上挂钩（before 模式）。检测 report_type=3 的
+sub=1 RF 数据包（消费者控制）。从 rx_data[2..3] 提取 usage code，通过
+EP2（0x82）发送，附带 Report ID 3（IF1 上的 Consumer Control 描述符）。
+清除 rx_command 以抑制原有 sub=1 处理器对 EP1 的错误路由。
+
+
+总结
+----
+
+| # | 位置 | 缺陷 | 影响 |
+|---|------|------|------|
+| A | 键盘 keycode_dispatch | 消费者设置位 0x04（鼠标）而非 0x20（消费者） | 数据作为鼠标子类型发送 |
+| A1 | 键盘 hid_report_check_send | 代码块 1 设置虚假键盘位 0x01 | 虚假键盘报告 |
+| A2 | 键盘 hid_report_check_send | 代码块 2 过早清零 consumer_report_t | 消费者数据在发送前丢失 |
+| B | 接收器 rf_tx_handler | Sub=1 发送到 EP1/IF0 而非 EP2/IF1 | 内核误解析为键盘修饰键 |
