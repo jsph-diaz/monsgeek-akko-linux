@@ -625,6 +625,14 @@ static int handle_led_stream(volatile uint8_t *buf) {
 /* ── USB connect init (patches config descriptors before enumeration) ──── */
 
 int handle_usb_connect(void) {
+    /* Zero PATCH_SRAM — stock crt0 only initializes the firmware's own
+     * .bss region, not ours.  SRAM survives soft reboot (flash + reset)
+     * so statics from the previous run persist as garbage.
+     * Must come before rtt_init() and log_entry() which use PATCH_SRAM. */
+    uint8_t *p = (uint8_t *)0x20009800;
+    for (int i = 0; i < 4096; i++)
+        p[i] = 0;
+
     log_entry(LOG_USB_CONNECT, (const uint8_t *)0, 0);
 
     /* Initialize RTT control block (re-initializes on each USB plug). */
