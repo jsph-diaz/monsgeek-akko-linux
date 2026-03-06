@@ -5,16 +5,9 @@
 /// Vendor ID for MonsGeek/Akko devices
 pub const VENDOR_ID: u16 = 0x3151;
 
-/// Product IDs for known devices
-pub const PRODUCT_ID_M1_V5_WIRED: u16 = 0x5030;
-pub const PRODUCT_ID_M1_V5_WIRELESS: u16 = 0x5038; // 2.4GHz dongle
-pub const PRODUCT_ID_M1_V5_BLUETOOTH: u16 = 0x5027; // Bluetooth HID (BLE)
-pub const PRODUCT_ID_DONGLE_LEGACY_1: u16 = 0x503A; // possibly other model
-pub const PRODUCT_ID_DONGLE_LEGACY_2: u16 = 0x503D; // possibly other model
-
 /// All known Bluetooth PIDs (BLE HID devices)
 pub const BLUETOOTH_PIDS: &[u16] = &[
-    PRODUCT_ID_M1_V5_BLUETOOTH, // 0x5027
+    0x5027, // M1 V5 HE Bluetooth
 ];
 
 /// Check if PID represents a Bluetooth device
@@ -25,9 +18,9 @@ pub fn is_bluetooth_pid(pid: u16) -> bool {
 
 /// All known dongle PIDs (2.4GHz wireless receivers)
 pub const DONGLE_PIDS: &[u16] = &[
-    PRODUCT_ID_M1_V5_WIRELESS,  // 0x5038
-    PRODUCT_ID_DONGLE_LEGACY_1, // 0x503A
-    PRODUCT_ID_DONGLE_LEGACY_2, // 0x503D
+    0x5038, // M1 V5 HE dongle
+    0x503A, // Legacy dongle variant
+    0x503D, // Legacy dongle variant
 ];
 
 /// Check if PID represents a 2.4GHz dongle
@@ -38,6 +31,15 @@ pub fn is_dongle_pid(pid: u16) -> bool {
 
 /// Vendor-specific HID usage page (0xFFFF)
 pub const USAGE_PAGE: u16 = 0xFFFF;
+
+/// Alternative vendor usage page seen on some models
+pub const USAGE_PAGE_ALT: u16 = 0xFF00;
+
+/// Check if a usage page is a vendor usage page (0xFFFF or 0xFF00)
+#[inline]
+pub fn is_vendor_usage_page(page: u16) -> bool {
+    page == USAGE_PAGE || page == USAGE_PAGE_ALT
+}
 
 /// HID Usage for FEATURE interface (interface 2) - for sending commands
 pub const USAGE_FEATURE: u16 = 0x02;

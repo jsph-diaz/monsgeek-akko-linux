@@ -17,13 +17,13 @@ pub struct DeviceDefinition {
     pub has_sidelight: bool,
 }
 
-/// All supported devices
-/// Add new devices here as they are tested
+/// Known devices with verified metadata.
+/// Unknown VID=0x3151 PIDs still work via VID-based discovery + profile_registry fallback.
 pub const SUPPORTED_DEVICES: &[DeviceDefinition] = &[
     // MonsGeek M1 V5 HE (our primary test device)
     DeviceDefinition {
         vid: hal::VENDOR_ID,
-        pid: hal::PRODUCT_ID_M1_V5_WIRED,
+        pid: 0x5030,
         name: "m1v5he_wired",
         display_name: "MonsGeek M1 V5 HE",
         key_count: hal::KEY_COUNT_M1_V5,
@@ -33,7 +33,7 @@ pub const SUPPORTED_DEVICES: &[DeviceDefinition] = &[
     // MonsGeek M1 V5 HE Wireless (2.4GHz dongle)
     DeviceDefinition {
         vid: hal::VENDOR_ID,
-        pid: hal::PRODUCT_ID_M1_V5_WIRELESS,
+        pid: 0x5038,
         name: "m1v5he_wireless",
         display_name: "MonsGeek M1 V5 HE (Wireless)",
         key_count: hal::KEY_COUNT_M1_V5,
@@ -43,7 +43,7 @@ pub const SUPPORTED_DEVICES: &[DeviceDefinition] = &[
     // MonsGeek M1 V5 HE Bluetooth (BLE HID)
     DeviceDefinition {
         vid: hal::VENDOR_ID,
-        pid: hal::PRODUCT_ID_M1_V5_BLUETOOTH,
+        pid: 0x5027,
         name: "m1v5he_bluetooth",
         display_name: "MonsGeek M1 V5 HE (Bluetooth)",
         key_count: hal::KEY_COUNT_M1_V5,
@@ -53,7 +53,7 @@ pub const SUPPORTED_DEVICES: &[DeviceDefinition] = &[
     // Legacy dongle PIDs (untested, may be other models)
     DeviceDefinition {
         vid: hal::VENDOR_ID,
-        pid: hal::PRODUCT_ID_DONGLE_LEGACY_1,
+        pid: 0x503A,
         name: "dongle_legacy_1",
         display_name: "MonsGeek Wireless Dongle (Legacy)",
         key_count: 0,
@@ -62,11 +62,21 @@ pub const SUPPORTED_DEVICES: &[DeviceDefinition] = &[
     },
     DeviceDefinition {
         vid: hal::VENDOR_ID,
-        pid: hal::PRODUCT_ID_DONGLE_LEGACY_2,
+        pid: 0x503D,
         name: "dongle_legacy_2",
         display_name: "MonsGeek Wireless Dongle (Legacy Alt)",
         key_count: 0,
         has_magnetism: false,
+        has_sidelight: false,
+    },
+    // Akko FUN 60 Pro (reported in issue #5)
+    DeviceDefinition {
+        vid: hal::VENDOR_ID,
+        pid: 0x502D,
+        name: "fun60pro",
+        display_name: "Akko FUN 60 Pro",
+        key_count: 61,
+        has_magnetism: true,
         has_sidelight: false,
     },
 ];
@@ -78,18 +88,9 @@ pub fn find_device(vid: u16, pid: u16) -> Option<&'static DeviceDefinition> {
         .find(|d| d.vid == vid && d.pid == pid)
 }
 
-/// Check if a VID/PID combination is supported
-pub fn is_supported(vid: u16, pid: u16) -> bool {
-    find_device(vid, pid).is_some()
-}
-
-/// Get all supported PIDs for a given VID
-pub fn get_pids_for_vid(vid: u16) -> Vec<u16> {
-    SUPPORTED_DEVICES
-        .iter()
-        .filter(|d| d.vid == vid)
-        .map(|d| d.pid)
-        .collect()
+/// Check if a VID/PID combination is supported (VID-based: any 0x3151 device)
+pub fn is_supported(vid: u16, _pid: u16) -> bool {
+    vid == hal::VENDOR_ID
 }
 
 /// Check if device has magnetism (hall effect switches)
@@ -441,15 +442,8 @@ mod tests {
         assert!(is_supported(0x3151, 0x5030)); // Wired
         assert!(is_supported(0x3151, 0x5038)); // 2.4GHz dongle
         assert!(is_supported(0x3151, 0x5027)); // Bluetooth
+        assert!(is_supported(0x3151, 0x502D)); // FUN 60 Pro (unknown PID still supported)
+        assert!(is_supported(0x3151, 0xFFFF)); // Any VID=0x3151 device
         assert!(!is_supported(0x1234, 0x5678));
-    }
-
-    #[test]
-    fn test_get_pids() {
-        let pids = get_pids_for_vid(0x3151);
-        assert_eq!(pids.len(), 5);
-        assert!(pids.contains(&0x5030)); // Wired
-        assert!(pids.contains(&0x5038)); // 2.4GHz dongle
-        assert!(pids.contains(&0x5027)); // Bluetooth
     }
 }

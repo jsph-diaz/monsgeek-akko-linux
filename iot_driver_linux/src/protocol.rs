@@ -376,8 +376,8 @@ pub mod cmd {
 pub use monsgeek_transport::protocol::{apply_checksum, build_command, calculate_checksum};
 pub use monsgeek_transport::types::ChecksumType;
 
-// Device constants (VID, PID, USAGE, etc.) are now in hal::constants
-// Use hal::VENDOR_ID, hal::PRODUCT_ID_*, etc.
+// Device constants (VID, USAGE, etc.) are now in hal::constants
+// Use hal::VENDOR_ID, hal::USAGE_PAGE, etc.
 
 /// HID report sizes
 pub const REPORT_SIZE: usize = 65; // Feature report size (with report ID)

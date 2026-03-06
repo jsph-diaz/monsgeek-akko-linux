@@ -511,15 +511,10 @@ pub mod precision {
 pub mod device {
     pub use crate::device_registry::VENDOR_ID;
 
-    /// M1 V5 HE wired keyboard
-    pub const PID_M1_V5_WIRED: u16 = 0x5030;
-    /// M1 V5 HE 2.4GHz wireless dongle
-    pub const PID_M1_V5_DONGLE: u16 = 0x5038;
-    /// M1 V5 HE Bluetooth
-    pub const PID_M1_V5_BLUETOOTH: u16 = 0x5027;
-
     /// HID usage page for vendor-defined (USB)
     pub const USAGE_PAGE: u16 = 0xFFFF;
+    /// Alternative vendor usage page seen on some models
+    pub const USAGE_PAGE_ALT: u16 = 0xFF00;
     /// HID usage for feature interface (USB)
     pub const USAGE_FEATURE: u16 = 0x02;
     /// HID usage for input interface (USB)
@@ -529,6 +524,12 @@ pub mod device {
     pub const INTERFACE_FEATURE: i32 = 2;
     /// Input interface number
     pub const INTERFACE_INPUT: i32 = 1;
+
+    /// Check if a usage page is a vendor usage page (0xFFFF or 0xFF00)
+    #[inline]
+    pub fn is_vendor_usage_page(page: u16) -> bool {
+        page == USAGE_PAGE || page == USAGE_PAGE_ALT
+    }
 
     pub use crate::device_registry::{is_bluetooth_pid, is_dongle_pid};
 }

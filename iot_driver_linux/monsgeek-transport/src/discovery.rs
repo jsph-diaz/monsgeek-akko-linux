@@ -36,8 +36,6 @@ pub trait DeviceDiscovery: Send + Sync {
 
 /// HID device discovery for wired and dongle connections
 pub struct HidDiscovery {
-    /// Known VID/PID pairs to look for
-    known_devices: Vec<(u16, u16)>,
     /// Hot-plug event sender
     event_tx: broadcast::Sender<DiscoveryEvent>,
     /// Optional printer config for monitoring mode - wraps transports automatically
@@ -63,11 +61,6 @@ impl HidDiscovery {
     pub fn new() -> Self {
         let (event_tx, _) = broadcast::channel(16);
         Self {
-            known_devices: vec![
-                (device::VENDOR_ID, device::PID_M1_V5_WIRED),
-                (device::VENDOR_ID, device::PID_M1_V5_DONGLE),
-                (device::VENDOR_ID, device::PID_M1_V5_BLUETOOTH),
-            ],
             event_tx,
             printer_config: None,
         }
@@ -78,31 +71,14 @@ impl HidDiscovery {
     pub fn with_printer_config(config: PrinterConfig) -> Self {
         let (event_tx, _) = broadcast::channel(16);
         Self {
-            known_devices: vec![
-                (device::VENDOR_ID, device::PID_M1_V5_WIRED),
-                (device::VENDOR_ID, device::PID_M1_V5_DONGLE),
-                (device::VENDOR_ID, device::PID_M1_V5_BLUETOOTH),
-            ],
             event_tx,
             printer_config: Some(config),
         }
     }
 
-    /// Add a VID/PID pair to discover
-    pub fn add_device(&mut self, vid: u16, pid: u16) {
-        if !self.known_devices.contains(&(vid, pid)) {
-            self.known_devices.push((vid, pid));
-        }
-    }
-
-    /// Check if a device matches our known devices
-    fn is_known_device(&self, vid: u16, pid: u16) -> bool {
-        self.known_devices.contains(&(vid, pid))
-    }
-
-    /// Check if this is the USB feature interface (usage 0x02, page 0xFFFF)
+    /// Check if this is the USB feature interface (vendor usage page, usage 0x02)
     fn is_usb_feature_interface(device_info: &hidapi::DeviceInfo) -> bool {
-        device_info.usage_page() == device::USAGE_PAGE
+        device::is_vendor_usage_page(device_info.usage_page())
             && device_info.usage() == device::USAGE_FEATURE
     }
 
@@ -112,9 +88,10 @@ impl HidDiscovery {
             && device_info.usage() == bluetooth::USAGE_VENDOR
     }
 
-    /// Check if this is the USB input interface (usage 0x01)
+    /// Check if this is the USB input interface (vendor usage page, usage 0x01)
     fn is_usb_input_interface(device_info: &hidapi::DeviceInfo) -> bool {
-        device_info.usage_page() == device::USAGE_PAGE && device_info.usage() == device::USAGE_INPUT
+        device::is_vendor_usage_page(device_info.usage_page())
+            && device_info.usage() == device::USAGE_INPUT
     }
 
     /// Find the input interface for a USB device
@@ -169,7 +146,8 @@ impl DeviceDiscovery for HidDiscovery {
             let vid = device_info.vendor_id();
             let pid = device_info.product_id();
 
-            if !self.is_known_device(vid, pid) {
+            // Match any device with our vendor ID
+            if vid != device::VENDOR_ID {
                 continue;
             }
 
@@ -177,7 +155,7 @@ impl DeviceDiscovery for HidDiscovery {
             let is_bluetooth = is_bluetooth_bus(device_info);
 
             // For Bluetooth: look for vendor interface (usage 0x0202, page 0xFF55)
-            // For USB: look for feature interface (usage 0x02, page 0xFFFF)
+            // For USB: look for feature interface (vendor usage page, usage 0x02)
             let is_target_interface = if is_bluetooth {
                 Self::is_bluetooth_vendor_interface(device_info)
             } else {

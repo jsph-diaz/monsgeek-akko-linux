@@ -68,11 +68,8 @@ pub fn open_keyboard(
             let transport = discovery.open_device(preferred)?;
             let flow = Arc::new(FlowControlTransport::new(transport));
             let info = flow.device_info();
-            let (key_count, has_magnetism) = match (info.vid, info.pid) {
-                (0x3151, 0x5030) => (monsgeek_keyboard::KEY_COUNT_M1_V5, true),
-                (0x3151, 0x5038) => (monsgeek_keyboard::KEY_COUNT_M1_V5, true),
-                _ => (monsgeek_keyboard::KEY_COUNT_M1_V5, true),
-            };
+            let key_count = iot_driver::devices::key_count(info.vid, info.pid);
+            let has_magnetism = iot_driver::devices::has_magnetism(info.vid, info.pid);
             monsgeek_keyboard::KeyboardInterface::new(flow, key_count, has_magnetism)
         }
         None => monsgeek_keyboard::KeyboardInterface::open_any()

@@ -3,10 +3,7 @@
 
 use super::traits::DeviceProfile;
 use super::types::TravelSettings;
-use crate::hal::constants::{
-    KEY_COUNT_M1_V5, MATRIX_SIZE_M1_V5, PRODUCT_ID_DONGLE_LEGACY_1, PRODUCT_ID_M1_V5_WIRED,
-    VENDOR_ID,
-};
+use crate::hal::constants::{KEY_COUNT_M1_V5, MATRIX_SIZE_M1_V5, VENDOR_ID};
 
 /// MonsGeek M1 V5 HE (Wired) builtin profile
 pub struct M1V5HeProfile {
@@ -47,7 +44,7 @@ impl DeviceProfile for M1V5HeProfile {
     }
 
     fn pid(&self) -> u16 {
-        PRODUCT_ID_M1_V5_WIRED
+        0x5030
     }
 
     fn name(&self) -> &str {
@@ -377,7 +374,7 @@ impl DeviceProfile for M1V5HeWirelessProfile {
     }
 
     fn pid(&self) -> u16 {
-        PRODUCT_ID_DONGLE_LEGACY_1
+        0x503A
     }
 
     fn name(&self) -> &str {
@@ -442,7 +439,7 @@ mod tests {
         let profile = M1V5HeProfile::new();
 
         assert_eq!(profile.vid(), VENDOR_ID);
-        assert_eq!(profile.pid(), PRODUCT_ID_M1_V5_WIRED);
+        assert_eq!(profile.pid(), 0x5030);
         assert_eq!(profile.key_count(), KEY_COUNT_M1_V5);
         assert!(profile.has_magnetism());
 
@@ -482,7 +479,7 @@ mod tests {
         let profile = M1V5HeWirelessProfile::new();
 
         assert_eq!(profile.vid(), VENDOR_ID);
-        assert_eq!(profile.pid(), PRODUCT_ID_DONGLE_LEGACY_1);
+        assert_eq!(profile.pid(), 0x503A);
         assert_eq!(profile.display_name(), "MonsGeek M1 V5 HE (Wireless)");
 
         // Should share the same matrix layout
