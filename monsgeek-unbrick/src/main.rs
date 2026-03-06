@@ -12,12 +12,35 @@ const FIRMWARE_V407: &[u8] =
     include_bytes!("../../firmwares/2949-v407/firmware_reconstructed.bin");
 
 fn main() {
+    // Catch panics so the elevated console window stays open
+    std::panic::set_hook(Box::new(|info| {
+        let msg = format!("\nPanic: {info}");
+        eprintln!("{msg}");
+        let _ = append_log(&msg);
+        eprint!("\nPress Enter to exit...");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }));
+
     if let Err(e) = run() {
-        eprintln!("\nError: {e:#}");
+        let msg = format!("Error: {e:#}");
+        eprintln!("\n{msg}");
+        let _ = append_log(&msg);
         wait_for_enter();
         std::process::exit(1);
     }
     wait_for_enter();
+}
+
+/// Append a message to %TEMP%\monsgeek-unbrick.log so it survives window close.
+fn append_log(msg: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let path = std::env::temp_dir().join("monsgeek-unbrick.log");
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(f, "{msg}")?;
+    Ok(())
 }
 
 fn run() -> Result<()> {
@@ -78,7 +101,18 @@ fn try_open_device() -> Result<dfuse::DfuSeDevice> {
                 eprintln!("Driver install failed: {e:#}");
                 eprintln!("You may need to install the driver manually (e.g. with Zadig).");
             } else {
-                println!("\nDriver installed successfully.");
+                println!("\nDriver installed. Waiting for Windows to bind it...");
+
+                // Give Windows time to load the driver and register the interface
+                for i in 0..10 {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    print!("\r[Waiting... {}/10s] ", i + 1);
+                    if let Ok(dev) = dfuse::DfuSeDevice::open() {
+                        println!("found!");
+                        return Ok(dev);
+                    }
+                }
+                println!("not yet.");
             }
 
             println!("\nUnplug and replug the device, then press Enter...");

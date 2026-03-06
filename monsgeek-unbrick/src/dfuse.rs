@@ -7,6 +7,7 @@ const DFU_DNLOAD: u8 = 1;
 const DFU_UPLOAD: u8 = 2;
 const DFU_GETSTATUS: u8 = 3;
 const DFU_CLRSTATUS: u8 = 4;
+const DFU_ABORT: u8 = 6;
 
 /// DFU request type: class, interface, OUT
 const DFU_OUT: u8 = 0x21;
@@ -73,7 +74,50 @@ impl DfuSeDevice {
     pub fn open() -> Result<Self> {
         let handle =
             WinUsbHandle::open(crate::flash_map::DFU_VID, crate::flash_map::DFU_PID)?;
-        Ok(Self { handle, iface: 0 })
+        let dev = Self { handle, iface: 0 };
+
+        // Ensure device is in dfuIDLE — clear any stale error state
+        for attempt in 0..3 {
+            match dev.get_status() {
+                Ok(st) => {
+                    let _ = crate::append_log(&format!(
+                        "  DFU: GET_STATUS[{}]: state={:?} status={} poll={}ms",
+                        attempt, st.state, st.status, st.poll_timeout_ms
+                    ));
+                    if st.state == DfuState::DfuIdle {
+                        break;
+                    }
+                    if st.state == DfuState::DfuError {
+                        let _ = crate::append_log("  DFU: clearing error state...");
+                        dev.clear_status()?;
+                        // Need another GET_STATUS to transition to dfuIDLE
+                        continue;
+                    }
+                    // Other non-idle states: try abort (DNLOAD with len=0) then clear
+                    let _ = dev.handle.control_out(0x21, 1, 0, dev.iface, &[]);
+                    dev.clear_status().ok();
+                }
+                Err(e) => {
+                    let _ = crate::append_log(&format!("  DFU: GET_STATUS[{}] failed: {e}", attempt));
+                    dev.clear_status().ok();
+                }
+            }
+        }
+
+        // Final state check
+        match dev.get_status() {
+            Ok(st) => {
+                let _ = crate::append_log(&format!(
+                    "  DFU: final state={:?} status={}",
+                    st.state, st.status
+                ));
+            }
+            Err(e) => {
+                let _ = crate::append_log(&format!("  DFU: final GET_STATUS failed: {e}"));
+            }
+        }
+
+        Ok(dev)
     }
 
     /// Get DFU status (6-byte response).
@@ -98,6 +142,12 @@ impl DfuSeDevice {
     pub fn clear_status(&self) -> Result<()> {
         self.handle
             .control_out(DFU_OUT, DFU_CLRSTATUS, 0, self.iface, &[])
+    }
+
+    /// Send DFU_ABORT to return to dfuIDLE from any idle sub-state.
+    pub fn abort(&self) -> Result<()> {
+        self.handle
+            .control_out(DFU_OUT, DFU_ABORT, 0, self.iface, &[])
     }
 
     /// Wait for device to be ready, polling GETSTATUS and respecting bwPollTimeout.
@@ -125,12 +175,15 @@ impl DfuSeDevice {
 
     /// DfuSe: set address pointer (for subsequent upload/download).
     pub fn set_address(&self, addr: u32) -> Result<()> {
+        let _ = crate::append_log(&format!("  DFU: set_address(0x{addr:08X})"));
         let mut cmd = [0u8; 5];
         cmd[0] = DFUSE_CMD_SET_ADDRESS;
         cmd[1..5].copy_from_slice(&addr.to_le_bytes());
         self.handle
             .control_out(DFU_OUT, DFU_DNLOAD, 0, self.iface, &cmd)?;
-        self.wait_ready()?;
+        let _ = crate::append_log("  DFU: set_address DNLOAD ok, waiting...");
+        let st = self.wait_ready()?;
+        let _ = crate::append_log(&format!("  DFU: set_address done, state={:?}", st.state));
         Ok(())
     }
 
@@ -183,8 +236,8 @@ impl DfuSeDevice {
     pub fn read_data(&self, addr: u32, len: usize) -> Result<Vec<u8>> {
         self.set_address(addr)?;
 
-        // First UPLOAD triggers the address set; we need to do a status check
-        // The AT32 ROM DFU expects set_address then UPLOAD starting at block 2
+        // set_address leaves us in DfuDnloadIdle — UPLOAD requires DfuIdle
+        self.abort()?;
         let mut result = Vec::with_capacity(len);
         let total_chunks = (len + TRANSFER_SIZE - 1) / TRANSFER_SIZE;
 
@@ -201,6 +254,9 @@ impl DfuSeDevice {
                 break; // short read
             }
         }
+
+        // Return to DfuIdle so subsequent DNLOAD operations work
+        self.abort()?;
 
         Ok(result)
     }

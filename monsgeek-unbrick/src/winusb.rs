@@ -6,12 +6,13 @@ use windows_sys::Win32::Devices::Usb::*;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Storage::FileSystem::*;
 
-/// GUID for WinUSB device interface
-const WINUSB_GUID: GUID = GUID {
-    data1: 0xDEE824EF,
-    data2: 0x729B,
-    data3: 0x4A0E,
-    data4: [0x9C, 0x14, 0xB7, 0x11, 0x7D, 0x33, 0xA8, 0x17],
+/// Custom device interface GUID from the WinUSB INF (DeviceInterfaceGUIDs).
+/// This is what SetupDi uses to enumerate devices with our driver installed.
+const DEVICE_INTERFACE_GUID: GUID = GUID {
+    data1: 0xD1975C4A,
+    data2: 0x3FCF,
+    data3: 0x4B96,
+    data4: [0xB2, 0x3E, 0x5B, 0x8E, 0x3B, 0x09, 0xC8, 0xF8],
 };
 
 /// Safe wrapper around a WinUSB device handle.
@@ -52,6 +53,38 @@ impl WinUsbHandle {
             bail!("WinUsb_Initialize failed: error {err}");
         }
 
+        // Query device descriptor for diagnostics
+        unsafe {
+            let mut desc = [0u8; 18];
+            let mut transferred = 0u32;
+            let setup = WINUSB_SETUP_PACKET {
+                RequestType: 0x80, // standard, device, IN
+                Request: 0x06,     // GET_DESCRIPTOR
+                Value: 0x0100,     // device descriptor
+                Index: 0,
+                Length: 18,
+            };
+            if WinUsb_ControlTransfer(winusb, setup, desc.as_mut_ptr(), 18, &mut transferred, ptr::null()) != 0 {
+                let vid = u16::from_le_bytes([desc[8], desc[9]]);
+                let pid = u16::from_le_bytes([desc[10], desc[11]]);
+                crate::append_log(&format!("  WinUSB: device descriptor VID={vid:04X} PID={pid:04X} bNumConfigurations={}", desc[17])).ok();
+            } else {
+                crate::append_log(&format!("  WinUSB: GET_DESCRIPTOR failed: error {}", GetLastError())).ok();
+            }
+
+            // Query interface descriptor
+            let mut iface_desc: USB_INTERFACE_DESCRIPTOR = std::mem::zeroed();
+            if WinUsb_QueryInterfaceSettings(winusb, 0, &mut iface_desc) != 0 {
+                crate::append_log(&format!(
+                    "  WinUSB: IF0 class={:02X} subclass={:02X} protocol={:02X} numEP={}",
+                    iface_desc.bInterfaceClass, iface_desc.bInterfaceSubClass,
+                    iface_desc.bInterfaceProtocol, iface_desc.bNumEndpoints
+                )).ok();
+            } else {
+                crate::append_log(&format!("  WinUSB: QueryInterfaceSettings failed: error {}", GetLastError())).ok();
+            }
+        }
+
         Ok(Self { file, winusb })
     }
 
@@ -64,20 +97,23 @@ impl WinUsbHandle {
         index: u16,
         data: &[u8],
     ) -> Result<()> {
+        // WinUsb_ControlTransfer requires a writable buffer even for OUT transfers.
+        // Copy to a mutable Vec to avoid ERROR_NOACCESS on read-only static data.
+        let mut buf = data.to_vec();
         let setup = WINUSB_SETUP_PACKET {
             RequestType: request_type,
             Request: request,
             Value: value,
             Index: index,
-            Length: data.len() as u16,
+            Length: buf.len() as u16,
         };
         let mut transferred: u32 = 0;
         let ok = unsafe {
             WinUsb_ControlTransfer(
                 self.winusb,
                 setup,
-                data.as_ptr() as *mut u8,
-                data.len() as u32,
+                buf.as_mut_ptr(),
+                buf.len() as u32,
                 &mut transferred,
                 ptr::null(),
             )
@@ -144,7 +180,7 @@ fn find_device_path(vid: u16, pid: u16) -> Result<Vec<u16>> {
 
     unsafe {
         let devinfo = SetupDiGetClassDevsW(
-            &WINUSB_GUID,
+            &DEVICE_INTERFACE_GUID,
             ptr::null(),
             ptr::null_mut(), // hwndParent
             DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
@@ -171,7 +207,7 @@ fn find_device_path(vid: u16, pid: u16) -> Result<Vec<u16>> {
             if SetupDiEnumDeviceInterfaces(
                 devinfo,
                 ptr::null(),
-                &WINUSB_GUID,
+                &DEVICE_INTERFACE_GUID,
                 index,
                 &mut iface_data,
             ) == 0
