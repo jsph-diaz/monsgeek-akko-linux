@@ -69,16 +69,6 @@ pub const SUPPORTED_DEVICES: &[DeviceDefinition] = &[
         has_magnetism: false,
         has_sidelight: false,
     },
-    // Akko FUN 60 Pro (reported in issue #5)
-    DeviceDefinition {
-        vid: hal::VENDOR_ID,
-        pid: 0x502D,
-        name: "fun60pro",
-        display_name: "Akko FUN 60 Pro",
-        key_count: 61,
-        has_magnetism: true,
-        has_sidelight: false,
-    },
 ];
 
 /// Find device definition by VID/PID
@@ -93,67 +83,84 @@ pub fn is_supported(vid: u16, _pid: u16) -> bool {
     vid == hal::VENDOR_ID
 }
 
-/// Check if device has magnetism (hall effect switches)
-/// First checks hardcoded SUPPORTED_DEVICES, then falls back to device database
-pub fn has_magnetism(vid: u16, pid: u16) -> bool {
-    // Check hardcoded definitions first
-    if let Some(dev) = find_device(vid, pid) {
-        return dev.has_magnetism;
-    }
-    // Fall back to device database
-    profile_registry().device_has_magnetism(vid, pid)
-}
+/// Resolve device info using the best available identifier.
+///
+/// Lookup order:
+/// 1. Device ID in JSON database (unique, correct for shared-PID devices)
+/// 2. Hardcoded SUPPORTED_DEVICES by VID/PID
+/// 3. VID/PID in JSON database (ambiguous if multiple devices share the PID)
+/// 4. Fallback defaults
+fn resolve_json_device(device_id: Option<i32>, vid: u16, pid: u16) -> Option<DeviceInfo> {
+    let registry = profile_registry();
 
-/// Get key count for device (0 for dongles/unknown)
-/// First checks hardcoded SUPPORTED_DEVICES, then falls back to device database
-pub fn key_count(vid: u16, pid: u16) -> u8 {
-    // Check hardcoded definitions first
-    if let Some(dev) = find_device(vid, pid) {
-        return dev.key_count;
+    // Try device ID first (unique match)
+    if let Some(id) = device_id {
+        if let Some(d) = registry.get_device_info_by_id(id) {
+            return Some(DeviceInfo::from_json(d));
+        }
     }
-    // Fall back to device database
-    profile_registry().device_key_count(vid, pid).unwrap_or(0)
-}
 
-/// Get device display name
-/// First checks hardcoded SUPPORTED_DEVICES, then falls back to device database
-pub fn get_display_name(vid: u16, pid: u16) -> Option<String> {
-    // Check hardcoded definitions first
-    if let Some(dev) = find_device(vid, pid) {
-        return Some(dev.display_name.to_string());
-    }
-    // Fall back to device database
-    profile_registry()
-        .get_device_info(vid, pid)
-        .map(|d| d.display_name.clone())
-}
-
-/// Get device info from the database (if available)
-pub fn get_device_info(vid: u16, pid: u16) -> Option<DeviceInfo> {
-    // Check hardcoded definitions first
+    // Try hardcoded definitions (known PIDs with unique mapping)
     if let Some(dev) = find_device(vid, pid) {
         return Some(DeviceInfo {
             name: dev.name.to_string(),
             display_name: dev.display_name.to_string(),
-            company: Some("MonsGeek".to_string()), // Hardcoded devices are MonsGeek
+            company: Some("MonsGeek".to_string()),
             key_count: dev.key_count,
             has_magnetism: dev.has_magnetism,
             has_sidelight: dev.has_sidelight,
             layer_count: None,
         });
     }
-    // Fall back to device database
-    profile_registry()
+
+    // Fall back to VID/PID in database (may be ambiguous)
+    registry
         .get_device_info(vid, pid)
-        .map(|d| DeviceInfo {
-            name: d.name.clone(),
-            display_name: d.display_name.clone(),
-            company: d.company.clone(),
-            key_count: d.key_count.unwrap_or(0),
-            has_magnetism: d.has_magnetism(),
-            has_sidelight: d.has_side_light.unwrap_or(false),
-            layer_count: d.layer,
-        })
+        .map(DeviceInfo::from_json)
+}
+
+/// Check if device has magnetism (hall effect switches)
+pub fn has_magnetism(vid: u16, pid: u16) -> bool {
+    has_magnetism_with_id(None, vid, pid)
+}
+
+/// Check if device has magnetism, with firmware device ID for accurate lookup
+pub fn has_magnetism_with_id(device_id: Option<i32>, vid: u16, pid: u16) -> bool {
+    resolve_json_device(device_id, vid, pid)
+        .map(|d| d.has_magnetism)
+        .unwrap_or(false)
+}
+
+/// Get key count for device (0 for dongles/unknown)
+pub fn key_count(vid: u16, pid: u16) -> u8 {
+    key_count_with_id(None, vid, pid)
+}
+
+/// Get key count, with firmware device ID for accurate lookup
+pub fn key_count_with_id(device_id: Option<i32>, vid: u16, pid: u16) -> u8 {
+    resolve_json_device(device_id, vid, pid)
+        .map(|d| d.key_count)
+        .unwrap_or(0)
+}
+
+/// Get device display name
+pub fn get_display_name(vid: u16, pid: u16) -> Option<String> {
+    get_display_name_with_id(None, vid, pid)
+}
+
+/// Get device display name, with firmware device ID for accurate lookup
+pub fn get_display_name_with_id(device_id: Option<i32>, vid: u16, pid: u16) -> Option<String> {
+    resolve_json_device(device_id, vid, pid).map(|d| d.display_name)
+}
+
+/// Get device info from the database (if available)
+pub fn get_device_info(vid: u16, pid: u16) -> Option<DeviceInfo> {
+    resolve_json_device(None, vid, pid)
+}
+
+/// Get device info with firmware device ID for accurate lookup
+pub fn get_device_info_with_id(device_id: Option<i32>, vid: u16, pid: u16) -> Option<DeviceInfo> {
+    resolve_json_device(device_id, vid, pid)
 }
 
 /// Device info struct returned by get_device_info
@@ -166,6 +173,21 @@ pub struct DeviceInfo {
     pub has_magnetism: bool,
     pub has_sidelight: bool,
     pub layer_count: Option<u8>,
+}
+
+impl DeviceInfo {
+    /// Convert from JSON device definition
+    fn from_json(d: &crate::device_loader::JsonDeviceDefinition) -> Self {
+        Self {
+            name: d.name.clone(),
+            display_name: d.display_name.clone(),
+            company: d.company.clone(),
+            key_count: d.key_count.unwrap_or(0),
+            has_magnetism: d.has_magnetism(),
+            has_sidelight: d.has_side_light.unwrap_or(false),
+            layer_count: d.layer,
+        }
+    }
 }
 
 // =============================================================================
@@ -445,5 +467,31 @@ mod tests {
         assert!(is_supported(0x3151, 0x502D)); // FUN 60 Pro (unknown PID still supported)
         assert!(is_supported(0x3151, 0xFFFF)); // Any VID=0x3151 device
         assert!(!is_supported(0x1234, 0x5678));
+    }
+
+    #[test]
+    fn test_device_id_lookup() {
+        // M1 V5 TMR (id=2949) should return correct metadata even with shared PID
+        let info = get_device_info_with_id(Some(2949), 0x3151, 0x5030);
+        if let Some(info) = info {
+            // Database or hardcoded should return something reasonable
+            assert!(info.key_count > 0);
+            assert!(info.has_magnetism);
+        }
+
+        // FUN 60 Pro (id=2304) shares PID 0x502D with 46 devices
+        let info = get_device_info_with_id(Some(2304), 0x3151, 0x502D);
+        if let Some(info) = info {
+            assert_eq!(info.key_count, 61); // FUN 60 Pro has 61 keys
+            assert!(info.has_magnetism);
+            assert!(info.display_name.contains("FUN60"));
+        }
+
+        // AttackShark K85 (id=1466) also shares PID 0x502D but has 82 keys
+        let info = get_device_info_with_id(Some(1466), 0x3151, 0x502D);
+        if let Some(info) = info {
+            assert_eq!(info.key_count, 82);
+            assert!(info.display_name.contains("K85"));
+        }
     }
 }

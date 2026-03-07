@@ -43,10 +43,23 @@ pub type CommandResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Open a keyboard, optionally with transport monitoring (--monitor).
 /// When printer_config is Some, the transport is wrapped so send/receive is printed.
+/// Query firmware device ID from a transport (GET_USB_VERSION bytes 1-4).
+/// Returns None if the device doesn't respond or the response is malformed.
+fn query_device_id(flow: &FlowControlTransport) -> Option<i32> {
+    flow.query_command(
+        protocol::cmd::GET_USB_VERSION,
+        &[],
+        monsgeek_transport::ChecksumType::Bit7,
+    )
+    .ok()
+    .filter(|r| r.len() >= 5 && r[0] == protocol::cmd::GET_USB_VERSION)
+    .map(|r| u32::from_le_bytes([r[1], r[2], r[3], r[4]]) as i32)
+}
+
 pub fn open_keyboard(
     printer_config: Option<PrinterConfig>,
 ) -> Result<monsgeek_keyboard::KeyboardInterface, Box<dyn std::error::Error>> {
-    let kb = match &printer_config {
+    let flow = match &printer_config {
         Some(config) => {
             let discovery = HidDiscovery::with_printer_config(config.clone());
             let devices = discovery.list_devices()?;
@@ -66,16 +79,20 @@ pub fn open_keyboard(
                 })
                 .unwrap_or(&devices[0]);
             let transport = discovery.open_device(preferred)?;
-            let flow = Arc::new(FlowControlTransport::new(transport));
-            let info = flow.device_info();
-            let key_count = iot_driver::devices::key_count(info.vid, info.pid);
-            let has_magnetism = iot_driver::devices::has_magnetism(info.vid, info.pid);
-            monsgeek_keyboard::KeyboardInterface::new(flow, key_count, has_magnetism)
+            Arc::new(FlowControlTransport::new(transport))
         }
-        None => monsgeek_keyboard::KeyboardInterface::open_any()
-            .map_err::<Box<dyn std::error::Error>, _>(Into::into)?,
+        None => open_preferred_transport(None)?,
     };
-    Ok(kb)
+
+    let info = flow.device_info();
+    let device_id = query_device_id(&flow);
+    let key_count = iot_driver::devices::key_count_with_id(device_id, info.vid, info.pid);
+    let has_magnetism = iot_driver::devices::has_magnetism_with_id(device_id, info.vid, info.pid);
+    Ok(monsgeek_keyboard::KeyboardInterface::new(
+        flow,
+        key_count,
+        has_magnetism,
+    ))
 }
 
 /// Open a keyboard and run a closure with it.

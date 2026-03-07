@@ -63,10 +63,20 @@ impl ProfileRegistry {
 
     /// Get device info from the database by VID/PID
     /// This provides access to device features even for devices without builtin profiles
+    /// WARNING: Returns arbitrary first match if multiple devices share the same VID/PID.
+    /// Prefer `get_device_info_by_id()` when device ID is available.
     pub fn get_device_info(&self, vid: u16, pid: u16) -> Option<&JsonDeviceDefinition> {
         self.device_db
             .as_ref()
             .and_then(|db| db.find_by_vid_pid(vid, pid).into_iter().next())
+    }
+
+    /// Get device info from the database by firmware device ID (from GET_USB_VERSION)
+    /// This is the correct lookup — device ID uniquely identifies the model.
+    pub fn get_device_info_by_id(&self, device_id: i32) -> Option<&JsonDeviceDefinition> {
+        self.device_db
+            .as_ref()
+            .and_then(|db| db.find_by_id(device_id))
     }
 
     /// Get device info with company preference

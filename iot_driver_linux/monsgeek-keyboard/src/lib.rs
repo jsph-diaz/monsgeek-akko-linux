@@ -104,20 +104,18 @@ impl KeyboardInterface {
     }
 
     /// Open a specific discovered device
+    ///
+    /// Queries GET_USB_VERSION to get device_id, but uses hardcoded defaults
+    /// for key_count/has_magnetism since this crate can't access the device database.
+    /// For accurate metadata lookup on shared-PID devices, use `KeyboardInterface::new()`
+    /// with values from `iot_driver::devices::key_count_with_id()`.
     pub fn open_device(
         device: &monsgeek_transport::DiscoveredDevice,
     ) -> Result<Self, KeyboardError> {
         let transport = monsgeek_transport::open_device_sync(device)?;
-        let info = transport.device_info();
 
-        // Look up device info - default to M1 V5 HE key count with magnetism
-        let (key_count, has_magnetism) = match (info.vid, info.pid) {
-            (0x3151, 0x5030) => (KEY_COUNT_M1_V5, true), // M1 V5 HE wired
-            (0x3151, 0x5038) => (KEY_COUNT_M1_V5, true), // M1 V5 HE dongle
-            _ => (KEY_COUNT_M1_V5, true),                // Default
-        };
-
-        Ok(Self::new(transport, key_count, has_magnetism))
+        // Default to M1 V5 HE — callers with database access should use new() directly
+        Ok(Self::new(transport, KEY_COUNT_M1_V5, true))
     }
 
     /// Get the underlying transport
