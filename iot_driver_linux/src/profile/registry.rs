@@ -1,7 +1,7 @@
 // Profile registry
 // Central registry for looking up device profiles by VID/PID
 
-use super::builtin::{M1V5HeProfile, M1V5HeWirelessProfile};
+use super::builtin::M1V5HeProfile;
 use super::json::{JsonProfileWrapper, LoadError};
 use super::traits::DeviceProfile;
 use crate::device_loader::{DeviceDatabase, JsonDeviceDefinition};
@@ -42,11 +42,11 @@ impl ProfileRegistry {
 
     /// Load all builtin profiles
     pub fn load_builtins(&mut self) {
-        // M1 V5 HE Wired
-        self.register(Arc::new(M1V5HeProfile::new()));
-
-        // M1 V5 HE Wireless
-        self.register(Arc::new(M1V5HeWirelessProfile::new()));
+        // M1 V5 HE — same keyboard, three transports, all share device ID 2949
+        // Register wired last so it wins the by_id slot
+        self.register(Arc::new(M1V5HeProfile::wireless())); // BT PID 0x503A
+        self.register(Arc::new(M1V5HeProfile::dongle())); // 2.4GHz PID 0x5038
+        self.register(Arc::new(M1V5HeProfile::wired())); // USB PID 0x5030
     }
 
     /// Load the device database from default paths
@@ -101,6 +101,16 @@ impl ProfileRegistry {
     /// Get key count from database
     pub fn device_key_count(&self, vid: u16, pid: u16) -> Option<u8> {
         self.get_device_info(vid, pid).and_then(|d| d.key_count)
+    }
+
+    /// Get device matrix from the matrix database by device ID
+    pub fn get_device_matrix(
+        &self,
+        device_id: i32,
+    ) -> Option<&crate::device_loader::JsonDeviceMatrix> {
+        self.device_db
+            .as_ref()
+            .and_then(|db| db.get_matrix(device_id))
     }
 
     /// Check if device database is loaded
@@ -259,24 +269,27 @@ mod tests {
     fn test_registry_with_builtins() {
         let registry = ProfileRegistry::with_builtins();
 
-        // Should have at least the M1 V5 HE profiles
-        assert!(registry.len() >= 2);
+        // Wired and wireless share device ID 2949, so by_id has 1 entry
+        // but by_vid_pid has 2 entries (0x5030 + 0x503A)
+        assert!(registry.len() >= 1);
 
         // Find wired variant
         let profile = registry.find_by_vid_pid(0x3151, 0x5030).unwrap();
         assert_eq!(profile.display_name(), "MonsGeek M1 V5 HE");
         assert_eq!(profile.key_count(), 98);
 
-        // Find wireless variant
+        // Find wireless and dongle variants
         let profile = registry.find_by_vid_pid(0x3151, 0x503A).unwrap();
         assert!(profile.display_name().contains("Wireless"));
+        let profile = registry.find_by_vid_pid(0x3151, 0x5038).unwrap();
+        assert!(profile.display_name().contains("Dongle"));
     }
 
     #[test]
     fn test_find_by_id() {
         let registry = ProfileRegistry::with_builtins();
 
-        let profile = registry.find_by_id(2679).unwrap();
+        let profile = registry.find_by_id(2949).unwrap();
         assert_eq!(profile.pid(), 0x5030);
     }
 

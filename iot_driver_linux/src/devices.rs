@@ -86,21 +86,12 @@ pub fn is_supported(vid: u16, _pid: u16) -> bool {
 /// Resolve device info using the best available identifier.
 ///
 /// Lookup order:
-/// 1. Device ID in JSON database (unique, correct for shared-PID devices)
-/// 2. Hardcoded SUPPORTED_DEVICES by VID/PID
+/// 1. Hardcoded SUPPORTED_DEVICES by VID/PID (manually verified, correct key_count)
+/// 2. Device ID in JSON database (unique, correct for shared-PID devices)
 /// 3. VID/PID in JSON database (ambiguous if multiple devices share the PID)
-/// 4. Fallback defaults
 fn resolve_json_device(device_id: Option<i32>, vid: u16, pid: u16) -> Option<DeviceInfo> {
-    let registry = profile_registry();
-
-    // Try device ID first (unique match)
-    if let Some(id) = device_id {
-        if let Some(d) = registry.get_device_info_by_id(id) {
-            return Some(DeviceInfo::from_json(d));
-        }
-    }
-
-    // Try hardcoded definitions (known PIDs with unique mapping)
+    // Hardcoded entries have verified key_count and capabilities — prefer them.
+    // The JSON database often has wrong key_count (e.g. 82 instead of 98 for M1 V5).
     if let Some(dev) = find_device(vid, pid) {
         return Some(DeviceInfo {
             name: dev.name.to_string(),
@@ -111,6 +102,15 @@ fn resolve_json_device(device_id: Option<i32>, vid: u16, pid: u16) -> Option<Dev
             has_sidelight: dev.has_sidelight,
             layer_count: None,
         });
+    }
+
+    let registry = profile_registry();
+
+    // Try device ID in JSON database (unique match)
+    if let Some(id) = device_id {
+        if let Some(d) = registry.get_device_info_by_id(id) {
+            return Some(DeviceInfo::from_json(d));
+        }
     }
 
     // Fall back to VID/PID in database (may be ambiguous)

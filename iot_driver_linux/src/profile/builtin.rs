@@ -5,26 +5,39 @@ use super::traits::DeviceProfile;
 use super::types::TravelSettings;
 use crate::hal::constants::{KEY_COUNT_M1_V5, MATRIX_SIZE_M1_V5, VENDOR_ID};
 
-/// MonsGeek M1 V5 HE (Wired) builtin profile
+/// MonsGeek M1 V5 HE builtin profile
 pub struct M1V5HeProfile {
     travel_settings: TravelSettings,
+    pid: u16,
+    display_name: &'static str,
 }
 
 impl M1V5HeProfile {
     pub fn new() -> Self {
+        Self::with_pid(0x5030, "MonsGeek M1 V5 HE")
+    }
+
+    pub fn with_pid(pid: u16, display_name: &'static str) -> Self {
         Self {
             travel_settings: TravelSettings::default(),
+            pid,
+            display_name,
         }
     }
 
-    /// Wired variant
+    /// USB wired variant (PID 0x5030)
     pub fn wired() -> Self {
         Self::new()
     }
 
-    /// Wireless variant
+    /// Bluetooth variant (PID 0x503A)
     pub fn wireless() -> Self {
-        Self::new()
+        Self::with_pid(0x503A, "MonsGeek M1 V5 HE (Wireless)")
+    }
+
+    /// 2.4GHz dongle variant (PID 0x5038)
+    pub fn dongle() -> Self {
+        Self::with_pid(0x5038, "MonsGeek M1 V5 HE (Dongle)")
     }
 }
 
@@ -36,7 +49,7 @@ impl Default for M1V5HeProfile {
 
 impl DeviceProfile for M1V5HeProfile {
     fn id(&self) -> u32 {
-        2679 // From webapp device database
+        2949 // Firmware-reported device ID (GET_USB_VERSION)
     }
 
     fn vid(&self) -> u16 {
@@ -44,15 +57,15 @@ impl DeviceProfile for M1V5HeProfile {
     }
 
     fn pid(&self) -> u16 {
-        0x5030
+        self.pid
     }
 
     fn name(&self) -> &str {
-        "m1v5he_wired"
+        "m1v5he"
     }
 
     fn display_name(&self) -> &str {
-        "MonsGeek M1 V5 HE"
+        self.display_name
     }
 
     fn company(&self) -> &str {
@@ -212,10 +225,10 @@ pub const M1_V5_HE_LED_MATRIX: [u8; MATRIX_SIZE_M1_V5] = [
     78, // 87: PgDn
     77, // 88: End
     79, // 89: Right
-    // Col 15: Media keys
-    233, // 90: VolUp
-    234, // 91: VolDn
-    0,   // 92: (Mute - special)
+    // Col 15: Encoder (GPIO-based, not magnetic switches)
+    233, // 90: VolUp (encoder rotate)
+    234, // 91: VolDn (encoder rotate)
+    0,   // 92: (encoder push - GPIO, not magnetic)
     0,   // 93-95: empty
     0, 0, // Remaining positions (96-125) are empty or special
     1, 2, 0, 0, 0, 0, 0, 0, 0, 0, // 96-105
@@ -333,102 +346,17 @@ pub const M1_V5_HE_KEY_NAMES: &[&str] = &[
     "End",   // 88: HID 77
     "Right", // 89: HID 79
     // Col 15 (90-95): Media keys
-    "Vol+", // 90: HID 233
-    "Vol-", // 91: HID 234
-    "Mute", // 92: special
-    "",     // 93: empty
-    "",     // 94: empty
-    "",     // 95: empty
+    "", // 90: Vol+ (encoder rotation, not magnetic)
+    "", // 91: Vol- (encoder rotation, not magnetic)
+    "", // 92: encoder push (GPIO, not magnetic)
+    "", // 93: empty
+    "", // 94: empty
+    "", // 95: empty
     // Remaining positions (96-125)
     "?", "?", "", "", "", "", "", "", "", "", // 96-105
     "", "", "", "", "", "", "", "", "", "", // 106-115
     "", "", "", "", "", "", "", "", "", "", // 116-125
 ];
-
-/// MonsGeek M1 V5 HE Wireless variant
-pub struct M1V5HeWirelessProfile {
-    inner: M1V5HeProfile,
-}
-
-impl M1V5HeWirelessProfile {
-    pub fn new() -> Self {
-        Self {
-            inner: M1V5HeProfile::new(),
-        }
-    }
-}
-
-impl Default for M1V5HeWirelessProfile {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DeviceProfile for M1V5HeWirelessProfile {
-    fn id(&self) -> u32 {
-        2680 // Different ID for wireless
-    }
-
-    fn vid(&self) -> u16 {
-        VENDOR_ID
-    }
-
-    fn pid(&self) -> u16 {
-        0x503A
-    }
-
-    fn name(&self) -> &str {
-        "m1v5he_wireless"
-    }
-
-    fn display_name(&self) -> &str {
-        "MonsGeek M1 V5 HE (Wireless)"
-    }
-
-    fn company(&self) -> &str {
-        self.inner.company()
-    }
-
-    fn key_count(&self) -> u8 {
-        self.inner.key_count()
-    }
-
-    fn matrix_size(&self) -> usize {
-        self.inner.matrix_size()
-    }
-
-    fn layer_count(&self) -> u8 {
-        self.inner.layer_count()
-    }
-
-    fn led_matrix(&self) -> &[u8] {
-        self.inner.led_matrix()
-    }
-
-    fn matrix_key_name(&self, position: u8) -> &str {
-        self.inner.matrix_key_name(position)
-    }
-
-    fn has_magnetism(&self) -> bool {
-        self.inner.has_magnetism()
-    }
-
-    fn has_sidelight(&self) -> bool {
-        self.inner.has_sidelight()
-    }
-
-    fn travel_settings(&self) -> Option<&TravelSettings> {
-        self.inner.travel_settings()
-    }
-
-    fn fn_layer_win(&self) -> u8 {
-        self.inner.fn_layer_win()
-    }
-
-    fn fn_layer_mac(&self) -> u8 {
-        self.inner.fn_layer_mac()
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -475,15 +403,15 @@ mod tests {
     }
 
     #[test]
-    fn test_wireless_profile() {
-        let profile = M1V5HeWirelessProfile::new();
+    fn test_variant_profiles() {
+        let wireless = M1V5HeProfile::wireless();
+        assert_eq!(wireless.pid(), 0x503A);
+        assert!(wireless.display_name().contains("Wireless"));
+        assert_eq!(wireless.matrix_key_name(0), "Esc");
 
-        assert_eq!(profile.vid(), VENDOR_ID);
-        assert_eq!(profile.pid(), 0x503A);
-        assert_eq!(profile.display_name(), "MonsGeek M1 V5 HE (Wireless)");
-
-        // Should share the same matrix layout
-        assert_eq!(profile.led_matrix()[0], 41);
-        assert_eq!(profile.matrix_key_name(0), "Esc");
+        let dongle = M1V5HeProfile::dongle();
+        assert_eq!(dongle.pid(), 0x5038);
+        assert!(dongle.display_name().contains("Dongle"));
+        assert_eq!(dongle.matrix_key_name(0), "Esc");
     }
 }
