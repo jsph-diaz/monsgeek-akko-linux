@@ -166,6 +166,10 @@ pub struct JsonDeviceMatrix {
     pub match_method: String,
     pub matrix: Vec<u8>,
     pub key_names: Vec<Option<String>>,
+    /// Matrix positions that are non-analog (GPIO/encoder, not magnetic switches).
+    /// These should be excluded from calibration progress display.
+    #[serde(default)]
+    pub non_analog_positions: Option<Vec<u8>>,
 }
 
 impl JsonDeviceMatrix {
@@ -190,6 +194,36 @@ impl JsonDeviceMatrix {
     /// Get HID code at position
     pub fn hid_code(&self, index: usize) -> Option<u8> {
         self.matrix.get(index).copied().filter(|&c| c != 0)
+    }
+
+    /// Get the firmware matrix size (highest occupied position + 1).
+    /// This is the number of positions the firmware uses for calibration/magnetism data.
+    pub fn matrix_size(&self) -> usize {
+        self.matrix
+            .iter()
+            .rposition(|&v| v != 0)
+            .map(|i| i + 1)
+            .unwrap_or(0)
+    }
+
+    /// Check if a matrix position is non-analog (GPIO/encoder, not a magnetic switch).
+    pub fn is_non_analog(&self, position: u8) -> bool {
+        self.non_analog_positions
+            .as_ref()
+            .map(|p| p.contains(&position))
+            .unwrap_or(false)
+    }
+
+    /// Get the number of analog (magnetic) key positions.
+    /// Excludes empty positions and non-analog positions.
+    pub fn analog_key_count(&self) -> usize {
+        let total_keys = self.matrix.iter().filter(|&&h| h != 0).count();
+        let non_analog = self
+            .non_analog_positions
+            .as_ref()
+            .map(|p| p.len())
+            .unwrap_or(0);
+        total_keys.saturating_sub(non_analog)
     }
 }
 

@@ -85,14 +85,56 @@ pub fn open_keyboard(
     };
 
     let info = flow.device_info();
+    let (vid, pid) = (info.vid, info.pid);
     let device_id = query_device_id(&flow);
-    let key_count = iot_driver::devices::key_count_with_id(device_id, info.vid, info.pid);
-    let has_magnetism = iot_driver::devices::has_magnetism_with_id(device_id, info.vid, info.pid);
-    Ok(monsgeek_keyboard::KeyboardInterface::new(
-        flow,
-        key_count,
-        has_magnetism,
-    ))
+    let mut key_count = iot_driver::devices::key_count_with_id(device_id, vid, pid);
+    let has_magnetism = iot_driver::devices::has_magnetism_with_id(device_id, vid, pid);
+    let device_info = iot_driver::devices::get_device_info_with_id(device_id, vid, pid);
+    let protocol = monsgeek_transport::protocol::ProtocolFamily::detect(
+        device_info.as_ref().map(|d| d.name.as_str()),
+        pid,
+    );
+
+    let registry = iot_driver::profile_registry();
+
+    // Try matrix database for key names and matrix size (covers 390+ devices).
+    // This is the generic path — no hardcoded profile needed.
+    let matrix_db = device_id.and_then(|id| registry.get_device_matrix(id));
+    if let Some(matrix) = matrix_db {
+        let matrix_size = matrix.matrix_size() as u8;
+        if key_count == 0 || (key_count < matrix_size && matrix_size > 0) {
+            key_count = matrix_size;
+        }
+    }
+
+    let mut kb =
+        monsgeek_keyboard::KeyboardInterface::new(flow, key_count, has_magnetism, protocol);
+
+    // Resolve key names: prefer builtin profile, fall back to matrix database.
+    let profile = device_id
+        .and_then(|id| registry.find_by_id(id as u32))
+        .or_else(|| registry.find_by_vid_pid(vid, pid));
+    if let Some(p) = profile {
+        let names: Vec<String> = (0..p.matrix_size())
+            .map(|i| p.matrix_key_name(i as u8).to_string())
+            .collect();
+        kb.set_matrix_key_names(names);
+    } else if let Some(matrix) = matrix_db {
+        let size = matrix.matrix_size();
+        let names: Vec<String> = (0..size)
+            .map(|i| matrix.key_name(i).unwrap_or("").to_string())
+            .collect();
+        kb.set_matrix_key_names(names);
+    }
+
+    // Set non-analog positions from matrix database (encoder/GPIO keys).
+    if let Some(matrix) = matrix_db {
+        if let Some(positions) = &matrix.non_analog_positions {
+            kb.set_non_analog_positions(positions.clone());
+        }
+    }
+
+    Ok(kb)
 }
 
 /// Open a keyboard and run a closure with it.

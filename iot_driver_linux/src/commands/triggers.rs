@@ -1,18 +1,57 @@
 //! Trigger-related command handlers.
 
 use super::CommandResult;
-use iot_driver::profile::M1_V5_HE_KEY_NAMES;
 use iot_driver::protocol::magnetism;
 use monsgeek_keyboard::{KeyMode, KeyTriggerSettings, KeyboardInterface};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Stop calibration with retry (keyboard can be sluggish in cal mode).
+/// Sends both min and max stop commands to ensure clean exit.
+fn stop_calibration(keyboard: &KeyboardInterface) {
+    // Stop max calibration (the active phase)
+    for attempt in 0..5 {
+        match keyboard.calibrate_max(false) {
+            Ok(_) => break,
+            Err(e) => {
+                if attempt < 4 {
+                    std::thread::sleep(Duration::from_millis(100));
+                } else {
+                    eprintln!("Warning: failed to stop max calibration after 5 attempts: {e}");
+                }
+            }
+        }
+    }
+    // Also stop min calibration (belt-and-suspenders)
+    let _ = keyboard.calibrate_min(false);
+    // Give firmware time to save calibration data to flash
+    std::thread::sleep(Duration::from_millis(300));
+}
+
 /// Run calibration (min + max) with per-key progress display
 pub fn calibrate(keyboard: &KeyboardInterface) -> CommandResult {
     let key_count = keyboard.key_count() as usize;
+
+    // Determine which matrix indices have real analog (magnetic) keys.
+    // Excluded: empty-name positions (gaps), non-analog positions (encoder/GPIO).
+    let has_key_names = !keyboard.matrix_key_name(0).is_empty();
+    let real_keys: HashSet<usize> = if has_key_names {
+        (0..key_count)
+            .filter(|&i| {
+                let name = keyboard.matrix_key_name(i);
+                !name.is_empty() && name != "?" && !keyboard.is_non_analog(i)
+            })
+            .collect()
+    } else {
+        // No profile key names available — exclude non-analog but include rest
+        (0..key_count)
+            .filter(|&i| !keyboard.is_non_analog(i))
+            .collect()
+    };
+    let real_count = real_keys.len();
 
     // Set up Ctrl+C handler
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -23,9 +62,13 @@ pub fn calibrate(keyboard: &KeyboardInterface) -> CommandResult {
         eprintln!("Warning: Could not set Ctrl+C handler: {e}");
     }
 
-    println!("Starting calibration for {} keys...", key_count);
-    println!("  Ctrl+C = abort (no save)");
-    println!("  Press Enter during max calibration = save partial and exit");
+    println!("Starting calibration for {real_count} keys ({key_count} matrix positions)...");
+    if !has_key_names {
+        println!("  (No device profile found — key names unavailable)");
+    }
+    println!();
+    println!("  To stop: Ctrl+C, any key, mouse click, or encoder knob.");
+    println!("  Auto-stops after 10s of no progress.");
     println!();
 
     // Phase 1: Min calibration (released position)
@@ -62,30 +105,35 @@ pub fn calibrate(keyboard: &KeyboardInterface) -> CommandResult {
     }
 
     // Poll and display progress
-    let mut finished = HashSet::new();
+    let mut finished = BTreeSet::new();
     let pages = key_count.div_ceil(32);
 
-    // Set stdin to non-blocking for checking Enter key
-    let stdin_check = setup_stdin_nonblocking();
+    // Set up input monitoring: stdin + mouse clicks + encoder knob (evdev)
+    let input = setup_input_monitor(keyboard.vid(), keyboard.pid());
+
+    // Idle timeout: auto-stop if no new key calibrates in 10 seconds
+    let mut last_progress_time = std::time::Instant::now();
+    let mut last_finished_count = 0usize;
+    let idle_timeout = Duration::from_secs(10);
 
     loop {
-        // Check for Ctrl+C (abort)
+        // Check for Ctrl+C (abort without saving)
         if interrupted.load(Ordering::SeqCst) {
-            let _ = keyboard.calibrate_max(false);
+            stop_calibration(keyboard);
             println!("\n\nCalibration aborted (not saved).");
-            restore_stdin(&stdin_check);
+            restore_input(&input);
             return Ok(());
         }
 
-        // Check for Enter key (graceful end with partial save)
-        if check_stdin_ready(&stdin_check) {
-            let _ = keyboard.calibrate_max(false);
+        // Check for Enter key or any stdin input (graceful save)
+        if check_input(&input) {
+            stop_calibration(keyboard);
             println!(
                 "\n\nPartial calibration saved ({}/{} keys).",
                 finished.len(),
-                key_count
+                real_count,
             );
-            restore_stdin(&stdin_check);
+            restore_input(&input);
             return Ok(());
         }
 
@@ -95,41 +143,51 @@ pub fn calibrate(keyboard: &KeyboardInterface) -> CommandResult {
                 Ok(values) => {
                     for (i, &val) in values.iter().enumerate() {
                         let key_idx = page as usize * 32 + i;
-                        if key_idx < key_count && val >= 300 && !finished.contains(&key_idx) {
+                        if real_keys.contains(&key_idx)
+                            && val >= 300
+                            && !finished.contains(&key_idx)
+                        {
                             finished.insert(key_idx);
                         }
                     }
                 }
-                Err(_) => continue, // Ignore errors, retry next iteration
+                Err(_) => continue,
             }
         }
 
-        // Build list of missing key names
-        let missing: Vec<&str> = (0..key_count)
+        // Track progress for idle timeout
+        if finished.len() > last_finished_count {
+            last_finished_count = finished.len();
+            last_progress_time = std::time::Instant::now();
+        }
+
+        // Build sorted list of missing key names (only real keys)
+        let mut missing: Vec<&str> = real_keys
+            .iter()
             .filter(|i| !finished.contains(i))
-            .map(|i| {
-                M1_V5_HE_KEY_NAMES
-                    .get(i)
-                    .copied()
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("?")
-            })
+            .map(|&i| keyboard.matrix_key_name(i))
+            .filter(|s| !s.is_empty())
             .collect();
+        missing.sort_unstable();
 
         // Clear line and print progress + missing keys (elided if many)
+        let idle_secs = last_progress_time.elapsed().as_secs();
         print!(
-            "\x1b[2K\r        Progress: {}/{} keys calibrated",
+            "\x1b[2K\r        Progress: {}/{} keys",
             finished.len(),
-            key_count
+            real_count,
         );
+        if idle_secs >= 3 && !missing.is_empty() {
+            print!(" (idle {idle_secs}s/10s)");
+        }
         if !missing.is_empty() {
             let max_show = 10;
             if missing.len() <= max_show {
-                print!("  Missing: {}", missing.join(", "));
+                print!("  Remaining: {}", missing.join(", "));
             } else {
                 let shown: Vec<&str> = missing.iter().copied().take(max_show).collect();
                 print!(
-                    "  Missing: {}, ... (+{})",
+                    "  Remaining: {}, ... (+{})",
                     shown.join(", "),
                     missing.len() - max_show
                 );
@@ -137,64 +195,145 @@ pub fn calibrate(keyboard: &KeyboardInterface) -> CommandResult {
         }
         let _ = std::io::stdout().flush();
 
-        if finished.len() >= key_count {
+        // Check completion
+        if finished.len() >= real_count {
             break;
         }
+
+        // Idle timeout
+        if last_progress_time.elapsed() >= idle_timeout && !finished.is_empty() {
+            stop_calibration(keyboard);
+            restore_input(&input);
+            let uncalibrated: Vec<&str> = missing.clone();
+            println!(
+                "\n\nAuto-stopped: no progress for 10s. Calibrated {}/{} keys.",
+                finished.len(),
+                real_count,
+            );
+            if !uncalibrated.is_empty() {
+                println!("  Uncalibrated: {}", uncalibrated.join(", "));
+            }
+            return Ok(());
+        }
+
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    let _ = keyboard.calibrate_max(false);
-    restore_stdin(&stdin_check);
-    println!("\n\nCalibration complete!");
+    stop_calibration(keyboard);
+    restore_input(&input);
+    println!("\n\nCalibration complete! All {real_count} keys calibrated.");
     Ok(())
 }
 
-/// Platform-specific stdin setup for non-blocking input
+/// Input monitor: watches stdin (keyboard + mouse clicks) and evdev (encoder knob).
 #[cfg(unix)]
-struct StdinState {
+struct InputMonitor {
     old_termios: Option<libc::termios>,
+    evdev_fds: Vec<std::os::unix::io::RawFd>,
 }
 
 #[cfg(unix)]
-fn setup_stdin_nonblocking() -> StdinState {
+fn setup_input_monitor(vid: u16, pid: u16) -> InputMonitor {
     use std::os::unix::io::AsRawFd;
 
     let fd = std::io::stdin().as_raw_fd();
     let mut old_termios: libc::termios = unsafe { std::mem::zeroed() };
 
-    // Get current terminal settings
-    if unsafe { libc::tcgetattr(fd, &mut old_termios) } != 0 {
-        return StdinState { old_termios: None };
+    let termios_ok = unsafe { libc::tcgetattr(fd, &mut old_termios) } == 0;
+
+    if termios_ok {
+        let mut new_termios = old_termios;
+        new_termios.c_lflag &= !(libc::ICANON | libc::ECHO);
+        new_termios.c_cc[libc::VMIN] = 0;
+        new_termios.c_cc[libc::VTIME] = 0;
+        unsafe {
+            libc::tcsetattr(fd, libc::TCSANOW, &new_termios);
+        }
     }
 
-    // Set non-canonical mode with no echo
-    let mut new_termios = old_termios;
-    new_termios.c_lflag &= !(libc::ICANON | libc::ECHO);
-    new_termios.c_cc[libc::VMIN] = 0;
-    new_termios.c_cc[libc::VTIME] = 0;
+    // Enable terminal mouse click tracking (X10 mode: report button presses)
+    // SGR extended mode for better compatibility with modern terminals
+    print!("\x1b[?1000h\x1b[?1006h");
+    let _ = std::io::stdout().flush();
 
-    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &new_termios) } != 0 {
-        return StdinState { old_termios: None };
+    // Find evdev devices matching our keyboard's VID/PID (for encoder knob)
+    let evdev_fds = find_evdev_devices(vid, pid);
+    if !evdev_fds.is_empty() {
+        eprintln!(
+            "  Monitoring {} input device(s) for encoder/knob events.",
+            evdev_fds.len()
+        );
     }
 
-    StdinState {
-        old_termios: Some(old_termios),
+    InputMonitor {
+        old_termios: if termios_ok { Some(old_termios) } else { None },
+        evdev_fds,
     }
 }
 
+/// Scan sysfs for /dev/input/eventN devices matching VID:PID, open non-blocking.
 #[cfg(unix)]
-fn check_stdin_ready(state: &StdinState) -> bool {
-    if state.old_termios.is_none() {
+fn find_evdev_devices(vid: u16, pid: u16) -> Vec<std::os::unix::io::RawFd> {
+    use std::os::unix::io::RawFd;
+
+    let vid_hex = format!("{:04x}", vid);
+    let pid_hex = format!("{:04x}", pid);
+    let mut fds: Vec<RawFd> = Vec::new();
+
+    let Ok(entries) = std::fs::read_dir("/sys/class/input") else {
+        return fds;
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.starts_with("event") {
+            continue;
+        }
+
+        let id_dir = entry.path().join("device/id");
+        let vendor = std::fs::read_to_string(id_dir.join("vendor")).unwrap_or_default();
+        let product = std::fs::read_to_string(id_dir.join("product")).unwrap_or_default();
+
+        if vendor.trim() == vid_hex && product.trim() == pid_hex {
+            let dev_path = format!("/dev/input/{name_str}");
+            let c_path = match std::ffi::CString::new(dev_path.as_str()) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK) };
+            if fd >= 0 {
+                fds.push(fd);
+            }
+        }
+    }
+
+    fds
+}
+
+#[cfg(unix)]
+fn check_input(monitor: &InputMonitor) -> bool {
+    use std::os::unix::io::AsRawFd;
+
+    if monitor.old_termios.is_none() && monitor.evdev_fds.is_empty() {
         return false;
     }
 
-    use std::os::unix::io::AsRawFd;
-    let fd = std::io::stdin().as_raw_fd();
+    let stdin_fd = std::io::stdin().as_raw_fd();
+    let mut read_fds: libc::fd_set = unsafe { std::mem::zeroed() };
+    let mut max_fd = stdin_fd;
 
-    let mut fds: libc::fd_set = unsafe { std::mem::zeroed() };
     unsafe {
-        libc::FD_ZERO(&mut fds);
-        libc::FD_SET(fd, &mut fds);
+        libc::FD_ZERO(&mut read_fds);
+        if monitor.old_termios.is_some() {
+            libc::FD_SET(stdin_fd, &mut read_fds);
+        }
+        for &fd in &monitor.evdev_fds {
+            libc::FD_SET(fd, &mut read_fds);
+            if fd > max_fd {
+                max_fd = fd;
+            }
+        }
     }
 
     let mut timeout = libc::timeval {
@@ -204,50 +343,76 @@ fn check_stdin_ready(state: &StdinState) -> bool {
 
     let result = unsafe {
         libc::select(
-            fd + 1,
-            &mut fds,
+            max_fd + 1,
+            &mut read_fds,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             &mut timeout,
         )
     };
 
-    if result > 0 {
-        // Read the character to consume it
-        let mut buf = [0u8; 1];
-        let _ = std::io::Read::read(&mut std::io::stdin(), &mut buf);
-        buf[0] == b'\n' || buf[0] == b'\r'
-    } else {
-        false
+    if result <= 0 {
+        return false;
     }
+
+    // Check stdin (keyboard on other KB, or mouse click in terminal)
+    if monitor.old_termios.is_some() && unsafe { libc::FD_ISSET(stdin_fd, &read_fds) } {
+        let mut buf = [0u8; 64];
+        let _ = std::io::Read::read(&mut std::io::stdin(), &mut buf);
+        return true;
+    }
+
+    // Check evdev devices (encoder knob rotation or press)
+    for &fd in &monitor.evdev_fds {
+        if unsafe { libc::FD_ISSET(fd, &read_fds) } {
+            // Drain all pending events
+            let mut buf = [0u8; 256];
+            while unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) } > 0 {}
+            return true;
+        }
+    }
+
+    false
 }
 
 #[cfg(unix)]
-fn restore_stdin(state: &StdinState) {
-    if let Some(ref old_termios) = state.old_termios {
+fn restore_input(monitor: &InputMonitor) {
+    // Disable mouse tracking
+    print!("\x1b[?1006l\x1b[?1000l");
+    let _ = std::io::stdout().flush();
+
+    // Restore terminal settings
+    if let Some(ref old_termios) = monitor.old_termios {
         use std::os::unix::io::AsRawFd;
         let fd = std::io::stdin().as_raw_fd();
         unsafe {
             libc::tcsetattr(fd, libc::TCSANOW, old_termios);
         }
     }
+
+    // Close evdev fds
+    for &fd in &monitor.evdev_fds {
+        unsafe {
+            libc::close(fd);
+        }
+    }
 }
 
 #[cfg(not(unix))]
-struct StdinState;
+struct InputMonitor;
 
 #[cfg(not(unix))]
-fn setup_stdin_nonblocking() -> StdinState {
-    StdinState
+fn setup_input_monitor(_vid: u16, _pid: u16) -> InputMonitor {
+    InputMonitor
 }
 
 #[cfg(not(unix))]
-fn check_stdin_ready(_state: &StdinState) -> bool {
+fn check_input(_monitor: &InputMonitor) -> bool {
     false
 }
 
 #[cfg(not(unix))]
-fn restore_stdin(_state: &StdinState) {}
+fn restore_input(_monitor: &InputMonitor) {}
 
 /// Show current trigger settings
 pub fn triggers(keyboard: &KeyboardInterface) -> CommandResult {

@@ -1,10 +1,11 @@
 {
-  "version": 1,
-  "generatedAt": "2026-03-06T23:09:21.667Z",
-  "description": "Device ID to key matrix mapping. Matrix is position -> HID code, keyNames is position -> key name.",
+  "version": 2,
+  "generatedAt": "2026-03-09T19:03:02.169Z",
+  "description": "Device ID to key matrix mapping. Matrix is position -> HID code, keyNames is position -> key name. nonAnalogPositions lists matrix indices of GPIO/encoder keys (not magnetic switches).",
   "stats": {
     "totalKeyboards": 407,
     "matched": 391,
+    "withNonAnalog": 192,
     "byMethod": {
       "ledMatrixDirect": 0,
       "exactName": 341,
@@ -12,6 +13,57 @@
       "similarName": 0,
       "unmatched": 16
     }
+  },
+  "nonAnalogHidCodes": [
+    233,
+    234
+  ],
+  "svgNonAnalogLayouts": {
+    "KF105": [
+      "AudioVolumeDown",
+      "AudioVolumeUp",
+      "MediaPlayPause"
+    ],
+    "5075B": [
+      "AudioVolumeDown",
+      "AudioVolumeUp",
+      "Volume_Brightness"
+    ],
+    "MOD007BHE": [
+      "AudioVolumeDown",
+      "AudioVolumeUp",
+      "Volume_Brightness"
+    ],
+    "PC75B_PIusS": [
+      "AudioVolumeDown",
+      "AudioVolumeUp",
+      "Volume_Brightness"
+    ],
+    "SG9000": [
+      "AudioVolumeDown",
+      "AudioVolumeMute",
+      "AudioVolumeUp"
+    ],
+    "mod007sv3he_uk": [
+      "AudioVolumeDown",
+      "AudioVolumeMute",
+      "AudioVolumeUp"
+    ],
+    "mod007sv3heuk_vb": [
+      "AudioVolumeDown",
+      "AudioVolumeUp",
+      "Volume_Brightness"
+    ],
+    "KF106": [
+      "AudioVolumeDown",
+      "AudioVolumeUp",
+      "MediaPlayPause"
+    ],
+    "5098B": [
+      "AudioVolumeDown",
+      "AudioVolumeUp",
+      "MediaPlayPause"
+    ]
   },
   "hidToKey": {
     "0": null,
@@ -125,7 +177,9 @@
     "228": "RCtrl",
     "229": "RShift",
     "230": "RAlt",
-    "231": "RMeta"
+    "231": "RMeta",
+    "233": "VolUp",
+    "234": "VolDn"
   },
   "devices": {
     "853": {
@@ -373,13 +427,13 @@
         null,
         "NumpadEnter",
         "NumpadDecimal",
-        "HID233",
+        "VolUp",
         null,
         null,
         null,
         null,
         null,
-        "HID234",
+        "VolDn",
         null,
         null,
         null,
@@ -393,6 +447,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        114
       ]
     },
     "888": {
@@ -628,13 +686,13 @@
         "Numpad6",
         "Numpad2",
         "Right",
-        "HID234",
+        "VolDn",
         "PageUp",
         "PageDown",
         "Numpad9",
         "Numpad3",
         "Numpad0",
-        "HID233",
+        "VolUp",
         "NumLock",
         "Numpad7",
         "NumpadMultiply",
@@ -660,6 +718,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        102
       ]
     },
     "913": {
@@ -1168,13 +1230,13 @@
         "Numpad9",
         "Numpad6",
         "Numpad3",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumLock",
         "NumpadMultiply",
         "NumpadDecimal",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "LAlt",
         "NumpadDivide",
         "NumpadSubtract",
@@ -1194,6 +1256,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "994": {
@@ -1702,13 +1768,13 @@
         "Numpad9",
         "Numpad6",
         "Numpad3",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumLock",
         "NumpadMultiply",
         "NumpadDecimal",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "LAlt",
         "NumpadDivide",
         "NumpadSubtract",
@@ -1728,6 +1794,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "1168": {
@@ -1963,8 +2033,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -1995,6 +2065,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "1200": {
@@ -2510,8 +2584,8 @@
         null,
         "NumpadEnter",
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -2529,6 +2603,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        109,
+        110
       ]
     },
     "1304": {
@@ -2758,8 +2836,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -2796,6 +2874,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1308": {
@@ -3037,13 +3119,13 @@
         "Numpad9",
         "Numpad6",
         "Numpad3",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumLock",
         "NumpadMultiply",
         "NumpadDecimal",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "LAlt",
         "NumpadDivide",
         "NumpadSubtract",
@@ -3063,6 +3145,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "1343": {
@@ -3292,8 +3378,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -3330,6 +3416,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1374": {
@@ -3559,8 +3649,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -3597,6 +3687,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1466": {
@@ -3783,13 +3877,13 @@
         "U",
         "J",
         "N",
-        "HID234",
+        "VolDn",
         "F7",
         "8",
         "I",
         "K",
         "M",
-        "HID233",
+        "VolUp",
         "F8",
         "9",
         "O",
@@ -3864,6 +3958,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        47,
+        53
       ]
     },
     "1528": {
@@ -4093,8 +4191,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -4131,6 +4229,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1588": {
@@ -4627,8 +4729,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -4665,6 +4767,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1637": {
@@ -4894,8 +5000,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -4932,6 +5038,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1679": {
@@ -5161,8 +5271,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -5199,6 +5309,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1723": {
@@ -5432,8 +5546,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -5466,6 +5580,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        94,
+        95
       ]
     },
     "1724": {
@@ -5695,8 +5813,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -5733,6 +5851,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1815": {
@@ -5901,13 +6023,13 @@
         "R",
         "F",
         "C",
-        "HID233",
+        "VolUp",
         "F5",
         "5",
         "T",
         "G",
         "V",
-        "HID234",
+        "VolDn",
         "F6",
         "6",
         "Y",
@@ -6000,6 +6122,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        29,
+        35
       ]
     },
     "1905": {
@@ -6453,13 +6579,13 @@
         "U",
         "J",
         "N",
-        "HID234",
+        "VolDn",
         "F8",
         "8",
         "I",
         "K",
         "M",
-        "HID233",
+        "VolUp",
         "F9",
         "9",
         "O",
@@ -6534,6 +6660,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        47,
+        53
       ]
     },
     "1923": {
@@ -6781,8 +6911,8 @@
         null,
         "NumpadEnter",
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -6801,6 +6931,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "1991": {
@@ -7030,8 +7164,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         null,
@@ -7068,6 +7202,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "1996": {
@@ -7309,13 +7447,13 @@
         "Numpad5",
         "Numpad2",
         "Numpad0",
-        "HID233",
+        "VolUp",
         "NumpadMultiply",
         "Numpad9",
         "Numpad6",
         "Numpad3",
         "NumpadDecimal",
-        "HID234",
+        "VolDn",
         "NumpadSubtract",
         null,
         "NumpadAdd",
@@ -7335,6 +7473,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "2227": {
@@ -8632,8 +8774,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -8670,6 +8812,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2255": {
@@ -9645,7 +9791,7 @@
         "T",
         "G",
         "V",
-        "HID233",
+        "VolUp",
         "F6",
         "6",
         "Y",
@@ -9657,7 +9803,7 @@
         "U",
         "J",
         "N",
-        "HID234",
+        "VolDn",
         "F8",
         "8",
         "I",
@@ -9738,6 +9884,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        35,
+        47
       ]
     },
     "2279": {
@@ -9912,7 +10062,7 @@
         "T",
         "G",
         "V",
-        "HID233",
+        "VolUp",
         "F6",
         "6",
         "Y",
@@ -9924,7 +10074,7 @@
         "U",
         "J",
         "N",
-        "HID234",
+        "VolDn",
         "F8",
         "8",
         "I",
@@ -10005,6 +10155,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        35,
+        47
       ]
     },
     "2281": {
@@ -10234,8 +10388,8 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -10272,6 +10426,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2296": {
@@ -10501,8 +10659,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -10539,6 +10697,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2297": {
@@ -10713,7 +10875,7 @@
         "T",
         "G",
         "V",
-        "HID233",
+        "VolUp",
         "F6",
         "6",
         "Y",
@@ -10725,7 +10887,7 @@
         "U",
         "J",
         "N",
-        "HID234",
+        "VolDn",
         "F8",
         "8",
         "I",
@@ -10806,6 +10968,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        35,
+        47
       ]
     },
     "2299": {
@@ -12637,8 +12803,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -12675,6 +12841,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2310": {
@@ -12904,8 +13074,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -12942,6 +13112,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2311": {
@@ -13707,8 +13881,8 @@
         "Right",
         null,
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID2",
         "HID1",
         "HID1",
@@ -13743,6 +13917,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2334": {
@@ -13972,8 +14150,8 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -14010,6 +14188,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2335": {
@@ -14773,8 +14955,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID205",
         null,
         null,
@@ -14811,6 +14993,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2342": {
@@ -15052,13 +15238,13 @@
         "Numpad5",
         "Numpad2",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadMultiply",
         "Numpad9",
         "Numpad6",
         "Numpad3",
         "NumpadDecimal",
-        "HID233",
+        "VolUp",
         "NumpadSubtract",
         "NumpadAdd",
         null,
@@ -15078,6 +15264,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "2343": {
@@ -16660,13 +16850,13 @@
         "Numpad7",
         "Numpad1",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "NumpadSubtract",
         "Numpad8",
         "Numpad2",
         "NumpadDecimal",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumpadAdd",
         "Numpad9",
@@ -16680,6 +16870,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        114
       ]
     },
     "2368": {
@@ -17977,8 +18171,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -18015,6 +18209,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2386": {
@@ -18717,7 +18915,7 @@
         "E",
         "D",
         "X",
-        "HID234",
+        "VolDn",
         "F4",
         "4",
         "R",
@@ -18729,7 +18927,7 @@
         "T",
         "G",
         "V",
-        "HID233",
+        "VolUp",
         "F6",
         "6",
         "Y",
@@ -18816,6 +19014,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        29,
+        41
       ]
     },
     "2398": {
@@ -19045,8 +19247,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -19083,6 +19285,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2406": {
@@ -19579,8 +19785,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -19617,6 +19823,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2410": {
@@ -19846,13 +20056,13 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
+        "VolUp",
         "NumLock",
         "Numpad7",
         "Numpad4",
         "Numpad1",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "Numpad8",
         "Numpad5",
@@ -19884,6 +20094,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        96
       ]
     },
     "2426": {
@@ -20380,8 +20594,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -20418,6 +20632,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2446": {
@@ -21181,8 +21399,8 @@
         "PageUp",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -21219,6 +21437,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2453": {
@@ -21448,8 +21670,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID205",
         null,
         null,
@@ -21486,6 +21708,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2454": {
@@ -22249,8 +22475,8 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -22287,6 +22513,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2485": {
@@ -23317,8 +23547,8 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -23355,6 +23585,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2507": {
@@ -23584,8 +23818,8 @@
         "PageUp",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -23622,6 +23856,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2510": {
@@ -24119,8 +24357,8 @@
         "PageDown",
         "Right",
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -24156,6 +24394,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        91,
+        92
       ]
     },
     "2527": {
@@ -24399,8 +24641,8 @@
         "Right",
         null,
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID2",
         "HID1",
         "HID1",
@@ -24423,6 +24665,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        104,
+        105
       ]
     },
     "2535": {
@@ -24652,8 +24898,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -24690,6 +24936,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2546": {
@@ -26812,8 +27062,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -26826,6 +27076,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        114,
+        115
       ]
     },
     "2578": {
@@ -31327,8 +31581,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -31365,6 +31619,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2618": {
@@ -33732,8 +33990,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -33768,6 +34026,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2634": {
@@ -35277,7 +35539,7 @@
         "T",
         "G",
         "V",
-        "HID233",
+        "VolUp",
         "F6",
         "6",
         "Y",
@@ -35289,7 +35551,7 @@
         "U",
         "J",
         "N",
-        "HID234",
+        "VolDn",
         "F8",
         "8",
         "I",
@@ -35370,6 +35632,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        35,
+        47
       ]
     },
     "2648": {
@@ -36679,8 +36945,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -36705,6 +36971,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2664": {
@@ -37201,8 +37471,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -37239,6 +37509,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2671": {
@@ -38002,8 +38276,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         "HID1",
         null,
@@ -38040,6 +38314,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2677": {
@@ -38803,8 +39081,8 @@
         "PageDown",
         "Right",
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -38841,6 +39119,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2683": {
@@ -39070,8 +39352,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -39108,6 +39390,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2688": {
@@ -39349,13 +39635,13 @@
         "Numpad6",
         null,
         "Right",
-        "HID234",
+        "VolDn",
         "NumLock",
         "NumpadMultiply",
         "Numpad7",
         "Numpad1",
         "Numpad0",
-        "HID233",
+        "VolUp",
         "NumpadDivide",
         "NumpadSubtract",
         "Numpad8",
@@ -39375,6 +39661,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "2690": {
@@ -39604,8 +39894,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -39642,6 +39932,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2694": {
@@ -39871,13 +40165,13 @@
         "Numpad4",
         "Numpad1",
         "Right",
-        "HID233",
+        "VolUp",
         "NumpadDivide",
         "Numpad8",
         "Numpad5",
         "Numpad2",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadMultiply",
         "Numpad9",
         "Numpad6",
@@ -39909,6 +40203,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        96
       ]
     },
     "2699": {
@@ -40152,8 +40450,8 @@
         "NumpadDivide",
         "NumLock",
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID146",
         null,
         null,
@@ -40176,6 +40474,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        104,
+        105
       ]
     },
     "2700": {
@@ -40405,8 +40707,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         "HID1",
         "HID2",
@@ -40443,6 +40745,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2703": {
@@ -40939,8 +41245,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -40977,6 +41283,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2708": {
@@ -41206,8 +41516,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -41244,6 +41554,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2709": {
@@ -41473,8 +41787,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -41511,6 +41825,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2710": {
@@ -42747,13 +43065,13 @@
         "R",
         "F",
         "C",
-        "HID234",
+        "VolDn",
         "F5",
         "5",
         "T",
         "G",
         "V",
-        "HID233",
+        "VolUp",
         "F6",
         "6",
         "Y",
@@ -42846,6 +43164,10 @@
         "Right",
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        29,
+        35
       ]
     },
     "2729": {
@@ -43344,8 +43666,8 @@
         "Right",
         null,
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID1",
         "HID2",
         "HID1",
@@ -43380,6 +43702,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2737": {
@@ -43609,8 +43935,8 @@
         "PageDown",
         "Right",
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -43647,6 +43973,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2739": {
@@ -43900,8 +44230,8 @@
         "Numpad8",
         "Numpad2",
         "NumpadDecimal",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "NumpadAdd",
         "Numpad9",
         "Numpad3",
@@ -43914,6 +44244,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        114,
+        115
       ]
     },
     "2740": {
@@ -44143,8 +44477,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -44181,6 +44515,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2743": {
@@ -44944,8 +45282,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -44982,6 +45320,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2751": {
@@ -45229,13 +45571,13 @@
         "Numpad7",
         "Numpad1",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "NumpadSubtract",
         "Numpad8",
         "Numpad2",
         "NumpadDecimal",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumpadAdd",
         "Numpad9",
@@ -45249,6 +45591,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        114
       ]
     },
     "2752": {
@@ -45478,8 +45824,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -45516,6 +45862,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2753": {
@@ -45746,8 +46096,8 @@
         "End",
         "Right",
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -45783,6 +46133,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        91,
+        92
       ]
     },
     "2755": {
@@ -46285,8 +46639,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -46317,6 +46671,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2757": {
@@ -46546,8 +46904,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -46584,6 +46942,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2759": {
@@ -46825,8 +47187,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -46851,6 +47213,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2761": {
@@ -48148,8 +48514,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -48186,6 +48552,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2769": {
@@ -48417,8 +48787,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -48453,6 +48823,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2770": {
@@ -48684,8 +49058,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -48720,6 +49094,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2771": {
@@ -48949,8 +49327,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         "HID1",
         null,
@@ -48987,6 +49365,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2772": {
@@ -49762,8 +50144,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -49788,6 +50170,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2775": {
@@ -50017,8 +50403,8 @@
         "PageDown",
         "Up",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -50055,6 +50441,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2776": {
@@ -50551,8 +50941,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -50589,6 +50979,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2781": {
@@ -50818,8 +51212,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -50856,6 +51250,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2782": {
@@ -52966,8 +53364,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -52992,6 +53390,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2795": {
@@ -53757,8 +54159,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -53793,6 +54195,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2798": {
@@ -54024,8 +54430,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -54060,6 +54466,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2799": {
@@ -54291,8 +54701,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -54327,6 +54737,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2800": {
@@ -54562,8 +54976,8 @@
         null,
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -54594,6 +55008,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2801": {
@@ -54837,8 +55255,8 @@
         "Right",
         "Left",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -54861,6 +55279,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        104,
+        105
       ]
     },
     "2802": {
@@ -55090,8 +55512,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -55128,6 +55550,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2804": {
@@ -55357,8 +55783,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         "HID1",
         null,
@@ -55395,6 +55821,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2806": {
@@ -55891,8 +56321,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -55929,6 +56359,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2808": {
@@ -56158,8 +56592,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -56196,6 +56630,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2809": {
@@ -57250,11 +57688,11 @@
         null,
         "NumpadEnter",
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -57264,6 +57702,12 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        114,
+        115,
+        117,
+        118
       ]
     },
     "2819": {
@@ -57493,8 +57937,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -57531,6 +57975,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2820": {
@@ -58306,8 +58754,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -58332,6 +58780,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2828": {
@@ -59095,13 +59547,13 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
+        "VolUp",
         "NumLock",
         "Numpad7",
         "Numpad4",
         "Numpad1",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "Numpad8",
         "Numpad5",
@@ -59133,6 +59585,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        96
       ]
     },
     "2832": {
@@ -59896,8 +60352,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -59934,6 +60390,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2835": {
@@ -60163,8 +60623,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -60201,6 +60661,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2836": {
@@ -60697,8 +61161,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "A",
         null,
         null,
@@ -60735,6 +61199,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2844": {
@@ -60966,8 +61434,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -61002,6 +61470,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2845": {
@@ -61777,8 +62249,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -61803,6 +62275,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2853": {
@@ -62038,8 +62514,8 @@
         null,
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -62070,6 +62546,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2854": {
@@ -62269,13 +62749,13 @@
         null,
         null,
         null,
-        "HID233",
+        "VolUp",
         "HID1",
         null,
         null,
         null,
         null,
-        "HID234",
+        "VolDn",
         "HID2",
         null,
         null,
@@ -62337,6 +62817,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        60,
+        66
       ]
     },
     "2855": {
@@ -62568,8 +63052,8 @@
         "Right",
         null,
         "HID205",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -62604,6 +63088,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2856": {
@@ -62839,8 +63327,8 @@
         null,
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -62871,6 +63359,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2857": {
@@ -63106,8 +63598,8 @@
         null,
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -63138,6 +63630,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2858": {
@@ -63373,8 +63869,8 @@
         null,
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -63405,6 +63901,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2859": {
@@ -63634,8 +64134,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -63672,6 +64172,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2861": {
@@ -63913,8 +64417,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -63939,6 +64443,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2862": {
@@ -64180,8 +64688,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -64206,6 +64714,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2864": {
@@ -64704,8 +65216,8 @@
         "Right",
         null,
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID1",
         "HID2",
         "HID1",
@@ -64740,6 +65252,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2866": {
@@ -65236,8 +65752,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -65274,6 +65790,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2870": {
@@ -65788,13 +66308,13 @@
         "Numpad7",
         "Numpad1",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "NumpadSubtract",
         "Numpad8",
         "Numpad2",
         "NumpadDecimal",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumpadAdd",
         "Numpad9",
@@ -65808,6 +66328,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        114
       ]
     },
     "2874": {
@@ -66577,8 +67101,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -66609,6 +67133,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2879": {
@@ -66838,8 +67366,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -66876,6 +67404,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2881": {
@@ -67641,8 +68173,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -67677,6 +68209,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2885": {
@@ -68137,8 +68673,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -68211,6 +68747,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        54,
+        55
       ]
     },
     "2887": {
@@ -68440,8 +68980,8 @@
         "PageDown",
         "Up",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -68478,6 +69018,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2888": {
@@ -68725,13 +69269,13 @@
         "Numpad7",
         "Numpad1",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "NumpadSubtract",
         "Numpad8",
         "Numpad2",
         "NumpadDecimal",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumpadAdd",
         "Numpad9",
@@ -68745,6 +69289,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        114
       ]
     },
     "2892": {
@@ -68975,8 +69523,8 @@
         "PageDown",
         "Right",
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -69012,6 +69560,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        91,
+        92
       ]
     },
     "2893": {
@@ -69514,9 +70066,9 @@
         null,
         null,
         "Right",
-        "HID234",
+        "VolDn",
         "HID2",
-        "HID233",
+        "VolUp",
         "LAlt",
         "HID1",
         null,
@@ -69526,8 +70078,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -69546,6 +70098,12 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        98,
+        108,
+        109
       ]
     },
     "2896": {
@@ -71377,8 +71935,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -71415,6 +71973,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2905": {
@@ -71644,8 +72206,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -71682,6 +72244,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2906": {
@@ -72463,8 +73029,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -72483,6 +73049,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "2910": {
@@ -72724,8 +73294,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -72750,6 +73320,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2912": {
@@ -73246,8 +73820,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -73284,6 +73858,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2917": {
@@ -73519,8 +74097,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -73551,6 +74129,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2918": {
@@ -73786,8 +74368,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -73818,6 +74400,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2919": {
@@ -74053,8 +74639,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -74085,6 +74671,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2920": {
@@ -74320,8 +74910,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -74352,6 +74942,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2922": {
@@ -74599,8 +75193,8 @@
         null,
         null,
         "NumpadEnter",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -74619,6 +75213,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "2923": {
@@ -75400,8 +75998,8 @@
         null,
         "NumpadEnter",
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -75420,6 +76018,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "2928": {
@@ -75651,8 +76253,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -75687,6 +76289,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2929": {
@@ -76183,8 +76789,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -76221,6 +76827,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2931": {
@@ -76450,8 +77060,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         "HID1",
         null,
@@ -76488,6 +77098,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2932": {
@@ -77014,14 +77628,18 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        120,
+        121
       ]
     },
     "2938": {
@@ -77251,8 +77869,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -77289,6 +77907,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2939": {
@@ -77518,8 +78140,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -77556,6 +78178,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2942": {
@@ -77785,8 +78411,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -77823,6 +78449,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2943": {
@@ -78319,8 +78949,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -78357,6 +78987,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2955": {
@@ -78586,8 +79220,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -78624,6 +79258,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2957": {
@@ -79140,8 +79778,8 @@
         null,
         "HID2",
         "HID1",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -79158,6 +79796,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        110,
+        111
       ]
     },
     "2959": {
@@ -79940,8 +80582,8 @@
         null,
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -79959,6 +80601,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        109,
+        110
       ]
     },
     "2964": {
@@ -80722,8 +81368,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         "HID2",
@@ -80760,6 +81406,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2968": {
@@ -80995,8 +81645,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -81027,6 +81677,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "2969": {
@@ -81797,8 +82451,8 @@
         "PageDown",
         "Right",
         "HID146",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         "NumpadSubtract",
         "NumpadMultiply",
@@ -81828,6 +82482,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        97,
+        98
       ]
     },
     "2976": {
@@ -82059,8 +82717,8 @@
         "Right",
         null,
         "LAlt",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID1",
         "HID2",
         "HID1",
@@ -82095,6 +82753,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        92,
+        93
       ]
     },
     "2978": {
@@ -82324,8 +82986,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -82362,6 +83024,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2980": {
@@ -83137,8 +83803,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -83163,6 +83829,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "2983": {
@@ -83410,8 +84080,8 @@
         null,
         null,
         "NumpadEnter",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -83430,6 +84100,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "2988": {
@@ -83926,8 +84600,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -83964,6 +84638,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2993": {
@@ -84205,13 +84883,13 @@
         "Numpad4",
         "Numpad2",
         "Right",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "Numpad8",
         "Numpad5",
         "Numpad3",
         "Numpad0",
-        "HID233",
+        "VolUp",
         "NumpadMultiply",
         "Numpad9",
         "Numpad6",
@@ -84231,6 +84909,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "2996": {
@@ -84478,8 +85160,8 @@
         "NumpadAdd",
         "NumpadEnter",
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -84498,6 +85180,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "2998": {
@@ -84727,8 +85413,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -84765,6 +85451,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "2999": {
@@ -85261,8 +85951,8 @@
         "PageDown",
         null,
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -85299,6 +85989,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3003": {
@@ -86076,8 +86770,8 @@
         null,
         null,
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID2",
         "HID1",
         "HID1",
@@ -86100,6 +86794,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        104,
+        105
       ]
     },
     "3012": {
@@ -86336,8 +87034,8 @@
         "PageDown",
         "Right",
         "HID146",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         "NumpadSubtract",
         "NumpadMultiply",
@@ -86367,6 +87065,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        97,
+        98
       ]
     },
     "3017": {
@@ -86893,14 +87595,18 @@
         "Numpad6",
         "Numpad9",
         "NumpadDecimal",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID2",
         "HID1",
         "Left",
         "Right",
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        120,
+        121
       ]
     },
     "3022": {
@@ -90346,8 +91052,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -90372,6 +91078,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "3046": {
@@ -90613,8 +91323,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -90639,6 +91349,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "3047": {
@@ -90880,8 +91594,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -90906,6 +91620,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "3049": {
@@ -91147,8 +91865,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -91173,6 +91891,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "3051": {
@@ -91414,8 +92136,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -91440,6 +92162,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        103
       ]
     },
     "3054": {
@@ -91936,8 +92662,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -91974,6 +92700,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3057": {
@@ -92233,14 +92963,18 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        120,
+        121
       ]
     },
     "3058": {
@@ -92500,14 +93234,18 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        120,
+        121
       ]
     },
     "3059": {
@@ -92755,8 +93493,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -92775,6 +93513,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "3060": {
@@ -93022,8 +93764,8 @@
         null,
         null,
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -93042,6 +93784,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "3062": {
@@ -93271,8 +94017,8 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         "HID1",
         null,
@@ -93309,6 +94055,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3063": {
@@ -93805,8 +94555,8 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -93843,6 +94593,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3065": {
@@ -94873,8 +95627,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID205",
         null,
         null,
@@ -94911,6 +95665,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3070": {
@@ -95140,8 +95898,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "HID205",
         null,
         null,
@@ -95178,6 +95936,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3071": {
@@ -95674,8 +96436,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -95712,6 +96474,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3076": {
@@ -95941,8 +96707,8 @@
         null,
         null,
         null,
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -95979,6 +96745,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3077": {
@@ -97009,8 +97779,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -97047,6 +97817,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3087": {
@@ -97543,8 +98317,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -97581,6 +98355,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3089": {
@@ -98362,8 +99140,8 @@
         "NumpadSubtract",
         "NumpadAdd",
         "NumpadEnter",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         null,
         null,
@@ -98382,6 +99160,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        108,
+        109
       ]
     },
     "3096": {
@@ -98625,8 +99407,8 @@
         null,
         null,
         "LAlt",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID2",
         "HID1",
         "HID1",
@@ -98649,6 +99431,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        104,
+        105
       ]
     },
     "3100": {
@@ -98878,8 +99664,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -98916,6 +99702,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3102": {
@@ -100213,8 +101003,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "LAlt",
         null,
         null,
@@ -100251,6 +101041,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3111": {
@@ -100480,8 +101274,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -100518,6 +101312,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3112": {
@@ -100753,8 +101551,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "LAlt",
         null,
         null,
@@ -100785,6 +101583,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        96,
+        97
       ]
     },
     "3113": {
@@ -101014,8 +101816,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         "A",
         null,
         null,
@@ -101052,6 +101854,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3115": {
@@ -101548,8 +102354,8 @@
         "PageUp",
         "PageDown",
         "Right",
-        "HID233",
-        "HID234",
+        "VolUp",
+        "VolDn",
         null,
         "HID1",
         "HID2",
@@ -101586,6 +102392,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3127": {
@@ -101816,8 +102626,8 @@
         "End",
         "Right",
         null,
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         "HID2",
         "HID1",
         null,
@@ -101853,6 +102663,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        91,
+        92
       ]
     },
     "3129": {
@@ -102082,8 +102896,8 @@
         "PageDown",
         "End",
         "Right",
-        "HID234",
-        "HID233",
+        "VolDn",
+        "VolUp",
         null,
         null,
         null,
@@ -102120,6 +102934,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        91
       ]
     },
     "3131": {
@@ -102895,13 +103713,13 @@
         "Numpad9",
         "Numpad6",
         "Numpad3",
-        "HID233",
+        "VolUp",
         "HID146",
         "NumLock",
         "NumpadMultiply",
         "NumpadDecimal",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "LAlt",
         "NumpadDivide",
         "NumpadSubtract",
@@ -102921,6 +103739,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        102,
+        108
       ]
     },
     "3269": {
@@ -104485,13 +105307,13 @@
         "PageDown",
         null,
         "Right",
-        "HID233",
+        "VolUp",
         "NumLock",
         "Numpad7",
         "Numpad4",
         "Numpad1",
         "Numpad0",
-        "HID234",
+        "VolDn",
         "NumpadDivide",
         "Numpad8",
         "Numpad5",
@@ -104523,6 +105345,10 @@
         null,
         null,
         null
+      ],
+      "nonAnalogPositions": [
+        90,
+        96
       ]
     }
   }
