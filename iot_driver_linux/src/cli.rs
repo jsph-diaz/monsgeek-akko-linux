@@ -28,6 +28,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub filter: Option<String>,
 
+    /// Select device by index, transport (usb/dongle/bt), or HID path
+    #[arg(short = 'D', long, global = true, value_name = "DEVICE")]
+    pub device: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

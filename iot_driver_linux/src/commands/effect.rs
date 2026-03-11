@@ -137,7 +137,7 @@ pub fn preview(name: &str, keys: &[String], var_args: &[String], fps: u32) -> Co
 
 /// Play an effect on hardware.
 pub fn play(
-    printer_config: Option<monsgeek_transport::PrinterConfig>,
+    ctx: &super::CmdCtx,
     name: &str,
     keys: &[String],
     var_args: &[String],
@@ -165,7 +165,7 @@ pub fn play(
         return Err("specify at least one key".into());
     }
 
-    let kb = super::led_stream::open_with_patch_check(printer_config)?;
+    let kb = super::led_stream::open_with_patch_check(ctx)?;
     let running = super::setup_interrupt_handler();
 
     println!(

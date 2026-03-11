@@ -1,8 +1,8 @@
 //! Utility command handlers.
 
-use super::{format_command_response, open_preferred_transport, CommandResult};
+use super::{format_command_response, open_preferred_transport, CmdCtx, CommandResult};
 use hidapi::HidApi;
-use monsgeek_transport::{ChecksumType, PrinterConfig, Transport};
+use monsgeek_transport::{ChecksumType, Transport};
 
 /// List all HID devices
 pub fn list(hidapi: &HidApi) -> CommandResult {
@@ -21,10 +21,10 @@ pub fn list(hidapi: &HidApi) -> CommandResult {
 }
 
 /// Send a raw command and print response
-pub fn raw(cmd_str: &str, printer_config: Option<PrinterConfig>) -> CommandResult {
+pub fn raw(cmd_str: &str, ctx: &CmdCtx) -> CommandResult {
     let cmd = u8::from_str_radix(cmd_str, 16)?;
 
-    let transport = open_preferred_transport(printer_config)?;
+    let transport = open_preferred_transport(ctx)?;
     let info = transport.device_info();
     println!(
         "Device: VID={:04X} PID={:04X} type={:?}",
@@ -42,8 +42,8 @@ pub fn raw(cmd_str: &str, printer_config: Option<PrinterConfig>) -> CommandResul
 }
 
 /// Run the TUI
-pub async fn tui() -> CommandResult {
-    iot_driver::tui::run().await?;
+pub async fn tui(device_selector: Option<String>) -> CommandResult {
+    iot_driver::tui::run(device_selector).await?;
     Ok(())
 }
 

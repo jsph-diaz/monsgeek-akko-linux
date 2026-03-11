@@ -15,9 +15,8 @@
 //! - Sweep test:     iterates all 96 positions; gaps produce no visible LED
 //!   (the sweep "disappears" at gap positions, which is expected)
 
-use super::{open_keyboard, setup_interrupt_handler, CommandResult};
+use super::{open_keyboard, setup_interrupt_handler, CmdCtx, CommandResult};
 use monsgeek_keyboard::KeyboardInterface;
-use monsgeek_transport::PrinterConfig;
 use std::sync::atomic::Ordering;
 
 // Re-export shared LED utilities so binary-crate callers (grpc.rs) can keep
@@ -45,9 +44,9 @@ const TEST_COLORS: [(u8, u8, u8); 7] = [
 /// Retries `get_patch_info()` up to 3 times for dongle connections where
 /// the keyboard may be asleep and needs a wake-up cycle.
 pub fn open_with_patch_check(
-    printer_config: Option<PrinterConfig>,
+    ctx: &CmdCtx,
 ) -> Result<KeyboardInterface, Box<dyn std::error::Error>> {
-    let kb = open_keyboard(printer_config).map_err(|e| format!("No device found: {e}"))?;
+    let kb = open_keyboard(ctx).map_err(|e| format!("No device found: {e}"))?;
 
     let max_attempts = if kb.is_wireless() { 3 } else { 1 };
     let mut last_err = None;
@@ -117,12 +116,8 @@ pub fn open_with_patch_check(
 /// Sweeps all 96 positions in row-major order (row 0 left→right, row 1, …).
 /// Gap positions (no physical LED) produce a dark frame — the sweep
 /// "disappears" momentarily, which is the expected spatial behaviour.
-pub fn stream_test(
-    printer_config: Option<PrinterConfig>,
-    fps: f32,
-    power_budget: u32,
-) -> CommandResult {
-    let kb = open_with_patch_check(printer_config)?;
+pub fn stream_test(ctx: &CmdCtx, fps: f32, power_budget: u32) -> CommandResult {
+    let kb = open_with_patch_check(ctx)?;
 
     let frame_duration = std::time::Duration::from_secs_f32(1.0 / fps);
     let running = setup_interrupt_handler();
@@ -172,13 +167,13 @@ pub fn stream_test(
 
 /// Stream a GIF to keyboard LEDs via the 0xFC patch protocol.
 pub fn stream_gif(
-    printer_config: Option<PrinterConfig>,
+    ctx: &CmdCtx,
     file: &str,
     fps: Option<f32>,
     loop_anim: bool,
     power_budget: u32,
 ) -> CommandResult {
-    let kb = open_with_patch_check(printer_config)?;
+    let kb = open_with_patch_check(ctx)?;
 
     // Decode GIF
     println!("Loading GIF: {file}");

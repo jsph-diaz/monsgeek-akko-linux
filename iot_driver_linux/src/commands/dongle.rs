@@ -1,16 +1,14 @@
 //! Dongle-specific command handlers.
 
-use super::{open_preferred_transport, CommandResult};
-use monsgeek_transport::{
-    ChecksumType, FlowControlTransport, PrinterConfig, Transport, TransportType,
-};
+use super::{open_preferred_transport, CmdCtx, CommandResult};
+use monsgeek_transport::{ChecksumType, FlowControlTransport, Transport, TransportType};
 use std::sync::Arc;
 
 /// Ensure the transport is connected via dongle, return it.
 fn open_dongle_transport(
-    printer_config: Option<PrinterConfig>,
+    ctx: &CmdCtx,
 ) -> Result<Arc<FlowControlTransport>, Box<dyn std::error::Error>> {
-    let transport = open_preferred_transport(printer_config)?;
+    let transport = open_preferred_transport(ctx)?;
     if transport.device_info().transport_type != TransportType::HidDongle {
         return Err(
             "Not connected via dongle. Use `iot_driver dongle` only with a 2.4GHz dongle.".into(),
@@ -20,8 +18,8 @@ fn open_dongle_transport(
 }
 
 /// `iot_driver dongle info` — combined F0 + F7 + FB + FD view
-pub fn info(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_dongle_transport(printer_config)?;
+pub fn info(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_dongle_transport(ctx)?;
 
     println!("Dongle Info");
     println!("===========");
@@ -96,8 +94,8 @@ pub fn info(printer_config: Option<PrinterConfig>) -> CommandResult {
 }
 
 /// `iot_driver dongle status` — detailed F7 output
-pub fn status(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_dongle_transport(printer_config)?;
+pub fn status(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_dongle_transport(ctx)?;
 
     match transport.query_dongle_status()? {
         Some(status) => {

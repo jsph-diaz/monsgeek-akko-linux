@@ -1,6 +1,6 @@
 //! Firmware command handlers.
 
-use super::CommandResult;
+use super::{CmdCtx, CommandResult};
 use iot_driver::firmware::FirmwareFile;
 use std::path::PathBuf;
 
@@ -41,13 +41,13 @@ pub fn validate(file: &PathBuf) -> CommandResult {
 }
 
 /// Dry-run firmware update (no actual flashing)
-pub fn dry_run(file: &PathBuf, verbose: bool) -> CommandResult {
+pub fn dry_run(ctx: &CmdCtx, file: &PathBuf, verbose: bool) -> CommandResult {
     use iot_driver::firmware::dry_run_usb;
 
     println!("=== DRY RUN - NO CHANGES WILL BE MADE ===\n");
 
     // Try to get current device info
-    let (current_version, device_id) = match super::open_keyboard(None) {
+    let (current_version, device_id) = match super::open_keyboard(ctx) {
         Ok(keyboard) => {
             let version = keyboard.get_version().unwrap_or_default();
             let device_id = keyboard.get_device_id().unwrap_or(0);
@@ -77,7 +77,7 @@ pub fn dry_run(file: &PathBuf, verbose: bool) -> CommandResult {
 
 /// Check for firmware updates from server
 #[cfg(feature = "firmware-api")]
-pub fn check(device_id: Option<u32>) -> CommandResult {
+pub fn check(ctx: &CmdCtx, device_id: Option<u32>) -> CommandResult {
     use iot_driver::firmware_api::{
         check_firmware_blocking as check_firmware, device_ids, ApiError,
     };
@@ -86,7 +86,7 @@ pub fn check(device_id: Option<u32>) -> CommandResult {
     let (api_device_id, keyboard) = if let Some(id) = device_id {
         (Some(id), None)
     } else {
-        match super::open_keyboard(None) {
+        match super::open_keyboard(ctx) {
             Ok(kb) => {
                 let id = kb.get_device_id().ok().filter(|&id| id != 0);
                 let id = id.or_else(|| device_ids::from_vid_pid(kb.vid(), kb.pid()));
@@ -123,7 +123,7 @@ pub fn check(device_id: Option<u32>) -> CommandResult {
             }
 
             // Compare with current device if connected
-            let kb = keyboard.or_else(|| super::open_keyboard(None).ok());
+            let kb = keyboard.or_else(|| super::open_keyboard(ctx).ok());
             if let Some(kb) = kb {
                 if let Ok(version) = kb.get_version() {
                     let current_usb = version.raw;
@@ -151,14 +151,14 @@ pub fn check(device_id: Option<u32>) -> CommandResult {
 }
 
 #[cfg(not(feature = "firmware-api"))]
-pub fn check(_device_id: Option<u32>) -> CommandResult {
+pub fn check(_ctx: &CmdCtx, _device_id: Option<u32>) -> CommandResult {
     eprintln!("Firmware API not enabled. Rebuild with: cargo build --features firmware-api");
     Ok(())
 }
 
 /// Download firmware from server
 #[cfg(feature = "firmware-api")]
-pub fn download(device_id: Option<u32>, output: &PathBuf) -> CommandResult {
+pub fn download(ctx: &CmdCtx, device_id: Option<u32>, output: &PathBuf) -> CommandResult {
     use iot_driver::firmware_api::{
         check_firmware_blocking as check_firmware, device_ids,
         download_firmware_blocking as download_firmware,
@@ -166,7 +166,7 @@ pub fn download(device_id: Option<u32>, output: &PathBuf) -> CommandResult {
 
     // Try to get device ID from connected device or argument
     let api_device_id = device_id.or_else(|| {
-        if let Ok(kb) = super::open_keyboard(None) {
+        if let Ok(kb) = super::open_keyboard(ctx) {
             kb.get_device_id()
                 .ok()
                 .filter(|&id| id != 0)
@@ -212,7 +212,7 @@ pub fn download(device_id: Option<u32>, output: &PathBuf) -> CommandResult {
 }
 
 #[cfg(not(feature = "firmware-api"))]
-pub fn download(_device_id: Option<u32>, _output: &PathBuf) -> CommandResult {
+pub fn download(_ctx: &CmdCtx, _device_id: Option<u32>, _output: &PathBuf) -> CommandResult {
     eprintln!("Firmware API not enabled. Rebuild with: cargo build --features firmware-api");
     Ok(())
 }

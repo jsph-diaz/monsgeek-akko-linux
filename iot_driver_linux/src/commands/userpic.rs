@@ -4,10 +4,9 @@
 //! 5 slots (0-4) at 384 bytes each, column-major layout:
 //! pixel (col, row) at offset `col * 18 + row * 3`.
 
-use super::{open_keyboard, CommandResult};
+use super::{open_keyboard, CmdCtx, CommandResult};
 use image::imageops::FilterType;
 use image::{GenericImageView, RgbImage};
-use monsgeek_transport::PrinterConfig;
 
 const COLS: usize = 16;
 const ROWS: usize = 6;
@@ -54,13 +53,13 @@ fn userpic_to_image(data: &[u8]) -> RgbImage {
 
 /// Upload or download a userpic.
 pub fn userpic(
-    printer_config: Option<PrinterConfig>,
+    ctx: &CmdCtx,
     file: Option<String>,
     slot: u8,
     output: Option<String>,
     nearest: bool,
 ) -> CommandResult {
-    let kb = open_keyboard(printer_config)?;
+    let kb = open_keyboard(ctx)?;
 
     if let Some(path) = file {
         // Upload

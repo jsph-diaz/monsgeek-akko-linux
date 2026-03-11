@@ -33,7 +33,8 @@ pub mod utility;
 use iot_driver::protocol::{self, cmd};
 use monsgeek_keyboard::settings::FirmwareVersion;
 use monsgeek_transport::{
-    DeviceDiscovery, FlowControlTransport, HidDiscovery, PacketFilter, PrinterConfig, Transport,
+    format_device_list, DeviceDiscovery, FlowControlTransport, HidDiscovery, PacketFilter,
+    PrinterConfig, Transport,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -41,8 +42,122 @@ use std::sync::Arc;
 /// Result type for command handlers
 pub type CommandResult = Result<(), Box<dyn std::error::Error>>;
 
-/// Open a keyboard, optionally with transport monitoring (--monitor).
-/// When printer_config is Some, the transport is wrapped so send/receive is printed.
+/// Command context threaded through all command handlers.
+/// Carries printer config (--monitor) and device selector (--device).
+#[derive(Clone, Default)]
+pub struct CmdCtx {
+    pub printer_config: Option<PrinterConfig>,
+    pub device: Option<String>,
+}
+
+impl CmdCtx {
+    pub fn new(printer_config: Option<PrinterConfig>, device: Option<String>) -> Self {
+        Self {
+            printer_config,
+            device,
+        }
+    }
+
+    pub fn device_selector(&self) -> Option<&str> {
+        self.device.as_deref()
+    }
+}
+
+/// Model name resolver for device labeling.
+/// Uses the device database to look up display names.
+fn resolve_model_name(device_id: Option<u32>, vid: u16, pid: u16) -> Option<String> {
+    iot_driver::devices::get_device_info_with_id(device_id.map(|id| id as i32), vid, pid)
+        .map(|info| info.display_name)
+}
+
+/// Resolve which device to use based on the --device selector.
+///
+/// When selector is None:
+/// - 0 devices: error
+/// - 1 device: use it
+/// - Multiple: print numbered list to stderr, return error
+///
+/// When selector is Some:
+/// - Try parse as index (usize)
+/// - Try match transport name ("usb", "dongle", "bt")
+/// - Otherwise treat as HID path prefix
+fn resolve_device(
+    discovery: &HidDiscovery,
+    selector: Option<&str>,
+) -> Result<monsgeek_transport::DiscoveredDevice, Box<dyn std::error::Error>> {
+    let labeled = discovery.list_labeled_devices(resolve_model_name)?;
+
+    if labeled.is_empty() {
+        return Err(monsgeek_transport::TransportError::DeviceNotFound(
+            "No supported device found".into(),
+        )
+        .into());
+    }
+
+    if let Some(sel) = selector {
+        // Try parse as index
+        if let Ok(idx) = sel.parse::<usize>() {
+            let len = labeled.len();
+            return labeled
+                .into_iter()
+                .find(|(_, l)| l.index == idx)
+                .map(|(p, _)| p.device)
+                .ok_or_else(|| format!("Device index {idx} out of range (0-{})", len - 1).into());
+        }
+
+        // Try match transport name
+        let transport_matches: Vec<_> = labeled
+            .iter()
+            .filter(|(_, l)| l.transport_name == sel)
+            .collect();
+        if transport_matches.len() == 1 {
+            return Ok(transport_matches[0].0.device.clone());
+        }
+        if transport_matches.len() > 1 {
+            let labels: Vec<_> = labeled.iter().map(|(_, l)| l.clone()).collect();
+            eprintln!("Multiple devices match transport '{sel}':");
+            eprint!("{}", format_device_list(&labels));
+            return Err(format!(
+                "Ambiguous --device '{sel}': {} matches. Use index or HID path.",
+                transport_matches.len()
+            )
+            .into());
+        }
+
+        // Try HID path prefix match
+        let path_matches: Vec<_> = labeled
+            .iter()
+            .filter(|(_, l)| l.hid_path.contains(sel))
+            .collect();
+        if path_matches.len() == 1 {
+            return Ok(path_matches[0].0.device.clone());
+        }
+        if path_matches.len() > 1 {
+            let labels: Vec<_> = labeled.iter().map(|(_, l)| l.clone()).collect();
+            eprintln!("Multiple devices match path '{sel}':");
+            eprint!("{}", format_device_list(&labels));
+            return Err(format!(
+                "Ambiguous --device '{sel}': {} matches.",
+                path_matches.len()
+            )
+            .into());
+        }
+
+        return Err(format!("No device matches '{sel}'").into());
+    }
+
+    // No selector: auto-select
+    if labeled.len() == 1 {
+        return Ok(labeled.into_iter().next().unwrap().0.device);
+    }
+
+    // Multiple devices: print list and error
+    let labels: Vec<_> = labeled.iter().map(|(_, l)| l.clone()).collect();
+    eprintln!("Multiple devices found. Use --device (-D) to select:");
+    eprint!("{}", format_device_list(&labels));
+    Err("Multiple devices found, use --device to select".into())
+}
+
 /// Query firmware device ID from a transport (GET_USB_VERSION bytes 1-4).
 /// Returns None if the device doesn't respond or the response is malformed.
 pub(crate) fn query_device_id(flow: &FlowControlTransport) -> Option<i32> {
@@ -56,33 +171,11 @@ pub(crate) fn query_device_id(flow: &FlowControlTransport) -> Option<i32> {
     .map(|r| u32::from_le_bytes([r[1], r[2], r[3], r[4]]) as i32)
 }
 
+/// Open a keyboard with device selection support.
 pub fn open_keyboard(
-    printer_config: Option<PrinterConfig>,
+    ctx: &CmdCtx,
 ) -> Result<monsgeek_keyboard::KeyboardInterface, Box<dyn std::error::Error>> {
-    let flow = match &printer_config {
-        Some(config) => {
-            let discovery = HidDiscovery::with_printer_config(config.clone());
-            let devices = discovery.list_devices()?;
-            if devices.is_empty() {
-                return Err(monsgeek_transport::TransportError::DeviceNotFound(
-                    "No supported device found".into(),
-                )
-                .into());
-            }
-            let preferred = devices
-                .iter()
-                .find(|d| d.info.transport_type == monsgeek_transport::TransportType::Bluetooth)
-                .or_else(|| {
-                    devices.iter().find(|d| {
-                        d.info.transport_type == monsgeek_transport::TransportType::HidDongle
-                    })
-                })
-                .unwrap_or(&devices[0]);
-            let transport = discovery.open_device(preferred)?;
-            Arc::new(FlowControlTransport::new(transport))
-        }
-        None => open_preferred_transport(None)?,
-    };
+    let flow = open_preferred_transport(ctx)?;
 
     let info = flow.device_info();
     let (vid, pid) = (info.vid, info.pid);
@@ -138,12 +231,11 @@ pub fn open_keyboard(
 }
 
 /// Open a keyboard and run a closure with it.
-/// When printer_config is Some, uses monitoring transport so --monitor shows send/receive.
-pub fn with_keyboard<F>(printer_config: Option<PrinterConfig>, f: F) -> CommandResult
+pub fn with_keyboard<F>(ctx: &CmdCtx, f: F) -> CommandResult
 where
     F: FnOnce(&monsgeek_keyboard::KeyboardInterface) -> CommandResult,
 {
-    match open_keyboard(printer_config) {
+    match open_keyboard(ctx) {
         Ok(keyboard) => f(&keyboard),
         Err(e) => {
             eprintln!("No device found: {e}");
@@ -152,45 +244,18 @@ where
     }
 }
 
-/// Open a device via the new transport layer, preferring Bluetooth when present.
-/// If `printer_config` is Some, the transport is automatically wrapped with Printer for monitoring.
+/// Open a device via the transport layer with device selection support.
+/// Prefers wired USB > Bluetooth > dongle when no --device is specified and only one device exists.
 pub fn open_preferred_transport(
-    printer_config: Option<PrinterConfig>,
+    ctx: &CmdCtx,
 ) -> Result<Arc<FlowControlTransport>, Box<dyn std::error::Error>> {
-    use monsgeek_transport::{DeviceDiscovery, HidDiscovery};
-
-    let discovery = match printer_config {
-        Some(config) => HidDiscovery::with_printer_config(config),
+    let discovery = match &ctx.printer_config {
+        Some(config) => HidDiscovery::with_printer_config(config.clone()),
         None => HidDiscovery::new(),
     };
-    let devices = discovery.list_devices()?;
 
-    if devices.is_empty() {
-        return Err(monsgeek_transport::TransportError::DeviceNotFound(
-            "No supported device found".into(),
-        )
-        .into());
-    }
-
-    // Prefer wired USB (direct, most reliable), then Bluetooth, then dongle.
-    // Dongle is always present even when keyboard is in wired mode, so it should
-    // be the lowest priority to avoid picking it when a direct path exists.
-    let preferred = devices
-        .iter()
-        .find(|d| d.info.transport_type == monsgeek_transport::TransportType::HidWired)
-        .or_else(|| {
-            devices
-                .iter()
-                .find(|d| d.info.transport_type == monsgeek_transport::TransportType::Bluetooth)
-        })
-        .or_else(|| {
-            devices
-                .iter()
-                .find(|d| d.info.transport_type == monsgeek_transport::TransportType::HidDongle)
-        })
-        .unwrap_or(&devices[0]);
-
-    let transport = discovery.open_device(preferred)?;
+    let device = resolve_device(&discovery, ctx.device_selector())?;
+    let transport = discovery.open_device(&device)?;
     Ok(Arc::new(FlowControlTransport::new(transport)))
 }
 

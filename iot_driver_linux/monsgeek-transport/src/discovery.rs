@@ -507,4 +507,55 @@ impl HidDiscovery {
 
         Ok(transports)
     }
+
+    /// Probe all devices and return them with human-readable labels.
+    ///
+    /// Each device is probed for device_id/version and assigned a sequential index.
+    /// The `model_name_fn` callback resolves device_id to a model name string;
+    /// if it returns None, the USB product string or "Unknown" is used.
+    pub fn list_labeled_devices<F>(
+        &self,
+        model_name_fn: F,
+    ) -> Result<Vec<(ProbedDevice, crate::types::DeviceLabel)>, TransportError>
+    where
+        F: Fn(Option<u32>, u16, u16) -> Option<String>,
+    {
+        let probed = self.probe_devices()?;
+        let mut labeled = Vec::with_capacity(probed.len());
+
+        for (index, p) in probed.into_iter().enumerate() {
+            let transport_name = match p.device.info.transport_type {
+                TransportType::HidWired => "usb",
+                TransportType::HidDongle => "dongle",
+                TransportType::Bluetooth => "bt",
+                TransportType::WebRtc => "webrtc",
+            };
+
+            let model_name = model_name_fn(p.device_id, p.device.info.vid, p.device.info.pid)
+                .or_else(|| p.device.info.product_name.clone())
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            let label = crate::types::DeviceLabel {
+                index,
+                model_name,
+                transport_name,
+                device_id: p.device_id,
+                version: p.version,
+                hid_path: p.device.info.device_path.clone(),
+            };
+
+            labeled.push((p, label));
+        }
+
+        Ok(labeled)
+    }
+}
+
+/// Format a device list for display (e.g., to stderr when multiple devices found).
+pub fn format_device_list(labels: &[crate::types::DeviceLabel]) -> String {
+    let mut out = String::new();
+    for label in labels {
+        out.push_str(&format!("{label}\n"));
+    }
+    out
 }

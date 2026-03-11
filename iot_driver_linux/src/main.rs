@@ -14,6 +14,7 @@ use cli::{Cli, Commands, DongleCommands, EffectCommands, FirmwareCommands};
 
 // Command handlers (split from main.rs)
 mod commands;
+use commands::CmdCtx;
 
 // gRPC server module
 mod grpc;
@@ -36,43 +37,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Create printer config if monitoring is enabled
+    // Create command context from CLI flags
     let printer_config =
         commands::create_printer_config(cli.monitor, cli.hex, cli.all, cli.filter.as_deref())?;
+    let ctx = CmdCtx::new(printer_config.clone(), cli.device);
 
     match cli.command {
         None => {
             // Default: show device info
-            commands::query::info(printer_config)?;
+            commands::query::info(&ctx)?;
         }
 
         // === Query Commands ===
         Some(Commands::Info) => {
-            commands::query::info(printer_config)?;
+            commands::query::info(&ctx)?;
         }
         Some(Commands::Profile) => {
-            commands::query::profile(printer_config)?;
+            commands::query::profile(&ctx)?;
         }
         Some(Commands::Led) => {
-            commands::query::led(printer_config)?;
+            commands::query::led(&ctx)?;
         }
         Some(Commands::Debounce) => {
-            commands::query::debounce(printer_config)?;
+            commands::query::debounce(&ctx)?;
         }
         Some(Commands::Rate) => {
-            commands::with_keyboard(printer_config, commands::query::rate)?;
+            commands::with_keyboard(&ctx, commands::query::rate)?;
         }
         Some(Commands::Options) => {
-            commands::query::options(printer_config)?;
+            commands::query::options(&ctx)?;
         }
         Some(Commands::Features) => {
-            commands::query::features(printer_config)?;
+            commands::query::features(&ctx)?;
         }
         Some(Commands::Sleep) => {
-            commands::with_keyboard(printer_config, commands::query::sleep)?;
+            commands::with_keyboard(&ctx, commands::query::sleep)?;
         }
         Some(Commands::All) => {
-            commands::query::all(printer_config)?;
+            commands::query::all(&ctx)?;
         }
         Some(Commands::Battery {
             quiet,
@@ -86,13 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // === Set Commands ===
         Some(Commands::SetProfile { profile }) => {
-            commands::with_keyboard(printer_config, |kb| commands::set::set_profile(kb, profile))?;
+            commands::with_keyboard(&ctx, |kb| commands::set::set_profile(kb, profile))?;
         }
         Some(Commands::SetDebounce { ms }) => {
-            commands::with_keyboard(printer_config, |kb| commands::set::set_debounce(kb, ms))?;
+            commands::with_keyboard(&ctx, |kb| commands::set::set_debounce(kb, ms))?;
         }
         Some(Commands::SetRate { rate }) => {
-            commands::with_keyboard(printer_config, |kb| commands::set::set_rate(kb, &rate))?;
+            commands::with_keyboard(&ctx, |kb| commands::set::set_rate(kb, &rate))?;
         }
         Some(Commands::SetLed {
             mode,
@@ -102,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             g,
             b,
         }) => {
-            commands::with_keyboard(printer_config, |kb| {
+            commands::with_keyboard(&ctx, |kb| {
                 commands::set::set_led(kb, &mode, brightness, speed, r, g, b)
             })?;
         }
@@ -115,48 +117,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             deep_24g,
             uniform,
         }) => {
-            commands::with_keyboard(printer_config, |kb| {
+            commands::with_keyboard(&ctx, |kb| {
                 commands::set::set_sleep(
                     kb, idle, deep, idle_bt, idle_24g, deep_bt, deep_24g, uniform,
                 )
             })?;
         }
         Some(Commands::Reset) => {
-            commands::with_keyboard(printer_config, commands::set::reset)?;
+            commands::with_keyboard(&ctx, commands::set::reset)?;
         }
         Some(Commands::SetColorAll { r, g, b, layer }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::set::set_color_all(kb, r, g, b, layer)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::set::set_color_all(kb, r, g, b, layer))?;
         }
 
         // === Trigger Commands ===
         Some(Commands::Calibrate) => {
-            commands::with_keyboard(printer_config, commands::triggers::calibrate)?;
+            commands::with_keyboard(&ctx, commands::triggers::calibrate)?;
         }
         Some(Commands::Triggers) => {
-            commands::with_keyboard(printer_config, commands::triggers::triggers)?;
+            commands::with_keyboard(&ctx, commands::triggers::triggers)?;
         }
         Some(Commands::SetActuation { mm }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::triggers::set_actuation(kb, mm)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::triggers::set_actuation(kb, mm))?;
         }
         Some(Commands::SetRt { value }) => {
-            commands::with_keyboard(printer_config, |kb| commands::triggers::set_rt(kb, &value))?;
+            commands::with_keyboard(&ctx, |kb| commands::triggers::set_rt(kb, &value))?;
         }
         Some(Commands::SetRelease { mm }) => {
-            commands::with_keyboard(printer_config, |kb| commands::triggers::set_release(kb, mm))?;
+            commands::with_keyboard(&ctx, |kb| commands::triggers::set_release(kb, mm))?;
         }
         Some(Commands::SetBottomDeadzone { mm }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::triggers::set_bottom_deadzone(kb, mm)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::triggers::set_bottom_deadzone(kb, mm))?;
         }
         Some(Commands::SetTopDeadzone { mm }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::triggers::set_top_deadzone(kb, mm)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::triggers::set_top_deadzone(kb, mm))?;
         }
         Some(Commands::SetKeyTrigger {
             key,
@@ -164,42 +158,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             release,
             mode,
         }) => {
-            commands::with_keyboard(printer_config, |kb| {
+            commands::with_keyboard(&ctx, |kb| {
                 commands::triggers::set_key_trigger(kb, key, actuation, release, mode)
             })?;
         }
 
         // === Keymap Commands ===
         Some(Commands::Remap { from, to, layer }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::keymap::remap(kb, &from, &to, layer)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::keymap::remap(kb, &from, &to, layer))?;
         }
         Some(Commands::ResetKey { key, layer }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::keymap::reset_key(kb, &key, layer)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::keymap::reset_key(kb, &key, layer))?;
         }
         Some(Commands::Swap { key1, key2, layer }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::keymap::swap(kb, &key1, &key2, layer)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::keymap::swap(kb, &key1, &key2, layer))?;
         }
         Some(Commands::RemapList { layer, all }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::keymap::remap_list(kb, layer, all)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::keymap::remap_list(kb, layer, all))?;
         }
         Some(Commands::FnLayout { sys }) => {
-            commands::with_keyboard(printer_config, |kb| commands::keymap::fn_layout(kb, &sys))?;
+            commands::with_keyboard(&ctx, |kb| commands::keymap::fn_layout(kb, &sys))?;
         }
         Some(Commands::Keymatrix { layer }) => {
-            commands::with_keyboard(printer_config, |kb| commands::keymap::keymatrix(kb, layer))?;
+            commands::with_keyboard(&ctx, |kb| commands::keymap::keymatrix(kb, layer))?;
         }
 
         // === Macro Commands ===
         Some(Commands::Macro { key }) => {
-            commands::with_keyboard(printer_config, |kb| commands::macros::get_macro(kb, &key))?;
+            commands::with_keyboard(&ctx, |kb| commands::macros::get_macro(kb, &key))?;
         }
         Some(Commands::SetMacro {
             key,
@@ -208,19 +194,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             repeat,
             seq,
         }) => {
-            commands::with_keyboard(printer_config, |kb| {
+            commands::with_keyboard(&ctx, |kb| {
                 commands::macros::set_macro(kb, &key, &text, delay, repeat, seq)
             })?;
         }
         Some(Commands::ClearMacro { key }) => {
-            commands::with_keyboard(printer_config, |kb| commands::macros::clear_macro(kb, &key))?;
+            commands::with_keyboard(&ctx, |kb| commands::macros::clear_macro(kb, &key))?;
         }
         Some(Commands::AssignMacro {
             key,
             macro_index,
             r#fn,
         }) => {
-            commands::with_keyboard(printer_config, |kb| {
+            commands::with_keyboard(&ctx, |kb| {
                 commands::macros::assign_macro(kb, &key, &macro_index, r#fn)
             })?;
         }
@@ -232,10 +218,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             output,
             nearest,
         }) => {
-            commands::userpic::userpic(printer_config, file, slot, output, nearest)?;
+            commands::userpic::userpic(&ctx, file, slot, output, nearest)?;
         }
         Some(Commands::StreamTest { fps, power_budget }) => {
-            commands::led_stream::stream_test(printer_config, fps, power_budget)?;
+            commands::led_stream::stream_test(&ctx, fps, power_budget)?;
         }
         Some(Commands::Stream {
             file,
@@ -243,12 +229,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             r#loop,
             power_budget,
         }) => {
-            commands::led_stream::stream_gif(printer_config, &file, fps, r#loop, power_budget)?;
+            commands::led_stream::stream_gif(&ctx, &file, fps, r#loop, power_budget)?;
         }
         Some(Commands::Mode { mode, layer }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::animations::mode(kb, &mode, layer)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::animations::mode(kb, &mode, layer))?;
         }
         Some(Commands::Modes) => {
             commands::animations::modes()?;
@@ -260,7 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             hue,
             sensitivity,
         }) => {
-            commands::reactive::audio(mode.as_str(), hue, sensitivity)?;
+            commands::reactive::audio(&ctx, mode.as_str(), hue, sensitivity)?;
         }
         Some(Commands::AudioTest) => {
             commands::reactive::audio_test()?;
@@ -270,27 +254,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(feature = "screen-capture")]
         Some(Commands::Screen { fps }) => {
-            commands::reactive::screen(fps).await?;
+            commands::reactive::screen(&ctx, fps).await?;
         }
 
         // === Dongle Commands ===
         Some(Commands::Dongle(dongle_cmd)) => match dongle_cmd {
             DongleCommands::Info => {
-                commands::dongle::info(printer_config)?;
+                commands::dongle::info(&ctx)?;
             }
             DongleCommands::Status => {
-                commands::dongle::status(printer_config)?;
+                commands::dongle::status(&ctx)?;
             }
         },
 
         // === Debug Commands ===
         Some(Commands::Depth { raw, zero, verbose }) => {
-            commands::with_keyboard(printer_config, |kb| {
-                commands::debug::depth(kb, raw, zero, verbose)
-            })?;
+            commands::with_keyboard(&ctx, |kb| commands::debug::depth(kb, raw, zero, verbose))?;
         }
         Some(Commands::TestTransport) => {
-            commands::debug::test_transport(printer_config)?;
+            commands::debug::test_transport(&ctx)?;
         }
 
         // === Firmware Commands ===
@@ -299,13 +281,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 commands::firmware::validate(&file)?;
             }
             FirmwareCommands::DryRun { file, verbose } => {
-                commands::firmware::dry_run(&file, verbose)?;
+                commands::firmware::dry_run(&ctx, &file, verbose)?;
             }
             FirmwareCommands::Check { device_id } => {
-                commands::firmware::check(device_id)?;
+                commands::firmware::check(&ctx, device_id)?;
             }
             FirmwareCommands::Download { device_id, output } => {
-                commands::firmware::download(device_id, &output)?;
+                commands::firmware::download(&ctx, device_id, &output)?;
             }
             FirmwareCommands::Flash {
                 file,
@@ -313,7 +295,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 dongle,
                 yes,
             } => {
-                commands::firmware::flash(&file, device.as_deref(), dongle, yes)?;
+                // firmware flash has its own --device flag; prefer it over global --device
+                let device_path = device.as_deref().or(ctx.device_selector());
+                commands::firmware::flash(&file, device_path, dongle, yes)?;
             }
         },
 
@@ -323,13 +307,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::utility::list(&hidapi)?;
         }
         Some(Commands::Raw { cmd: cmd_str }) => {
-            commands::utility::raw(&cmd_str, printer_config)?;
+            commands::utility::raw(&cmd_str, &ctx)?;
         }
         Some(Commands::Serve) => {
             run_server(printer_config).await?;
         }
         Some(Commands::Tui) => {
-            commands::utility::tui().await?;
+            commands::utility::tui(ctx.device).await?;
         }
         Some(Commands::Joystick { config, headless }) => {
             commands::utility::joystick(config, headless)?;
@@ -352,14 +336,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 commands::effect::preview(&name, &keys, &vars, fps)?;
             }
             EffectCommands::Play { name, keys, vars } => {
-                commands::effect::play(printer_config, &name, &keys, &vars)?;
+                commands::effect::play(&ctx, &name, &keys, &vars)?;
             }
         },
 
         // === Notification Commands ===
         #[cfg(feature = "notify")]
         Some(Commands::NotifyDaemon { fps, power_budget }) => {
-            commands::notify::daemon(printer_config, fps, power_budget).await?;
+            commands::notify::daemon(&ctx, fps, power_budget).await?;
         }
         #[cfg(feature = "notify")]
         Some(Commands::Notify {

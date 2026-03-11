@@ -250,6 +250,37 @@ pub struct DiscoveredDevice {
     pub info: TransportDeviceInfo,
 }
 
+/// Human-readable device label for multi-device selection
+#[derive(Debug, Clone)]
+pub struct DeviceLabel {
+    /// Sequential index in the device list
+    pub index: usize,
+    /// Model name (from DB lookup or USB product string)
+    pub model_name: String,
+    /// Transport type short name: "usb", "dongle", "bt"
+    pub transport_name: &'static str,
+    /// Firmware device ID if probed
+    pub device_id: Option<u32>,
+    /// Firmware version if probed
+    pub version: Option<u16>,
+    /// HID device path
+    pub hid_path: String,
+}
+
+impl std::fmt::Display for DeviceLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "#{:<2} {:<20} {:<8}",
+            self.index, self.model_name, self.transport_name
+        )?;
+        if let (Some(id), Some(ver)) = (self.device_id, self.version) {
+            write!(f, " [{id} v{}.{:02}]", ver / 100, ver % 100)?;
+        }
+        Ok(())
+    }
+}
+
 /// Discovery events for hot-plug support
 #[derive(Debug, Clone)]
 pub enum DiscoveryEvent {

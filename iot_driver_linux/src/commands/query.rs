@@ -1,17 +1,17 @@
 //! Query (read-only) command handlers.
 
-use super::{format_command_response, open_preferred_transport, CommandResult};
+use super::{format_command_response, open_preferred_transport, CmdCtx, CommandResult};
 use hidapi::HidApi;
 use iot_driver::hal;
 use iot_driver::protocol::{self, cmd};
 use monsgeek_keyboard::SleepTimeSettings;
 use monsgeek_transport::protocol::cmd as transport_cmd;
-use monsgeek_transport::{ChecksumType, PrinterConfig, Transport};
+use monsgeek_transport::{ChecksumType, Transport};
 use std::time::Duration;
 
 /// Get device info (firmware version, device ID, patch, boot mode, API ID)
-pub fn info(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_preferred_transport(printer_config)?;
+pub fn info(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_preferred_transport(ctx)?;
     let dev = transport.device_info();
 
     // Device identity
@@ -159,16 +159,16 @@ pub fn info(printer_config: Option<PrinterConfig>) -> CommandResult {
 }
 
 /// Get current profile
-pub fn profile(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_preferred_transport(printer_config)?;
+pub fn profile(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_preferred_transport(ctx)?;
     let resp = transport.query_command(transport_cmd::GET_PROFILE, &[], ChecksumType::Bit7)?;
     println!("Profile: {}", resp[1]);
     Ok(())
 }
 
 /// Get LED settings
-pub fn led(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_preferred_transport(printer_config)?;
+pub fn led(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_preferred_transport(ctx)?;
     let resp = transport.query_command(transport_cmd::GET_LEDPARAM, &[], ChecksumType::Bit7)?;
     let mode = resp[1];
     let speed = resp[2];
@@ -185,8 +185,8 @@ pub fn led(printer_config: Option<PrinterConfig>) -> CommandResult {
 }
 
 /// Get debounce time
-pub fn debounce(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_preferred_transport(printer_config)?;
+pub fn debounce(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_preferred_transport(ctx)?;
     let resp = transport.query_command(transport_cmd::GET_DEBOUNCE, &[], ChecksumType::Bit7)?;
     println!("Debounce: {} ms", resp[1]);
     Ok(())
@@ -207,16 +207,16 @@ pub fn rate(keyboard: &monsgeek_keyboard::KeyboardInterface) -> CommandResult {
 }
 
 /// Get keyboard options
-pub fn options(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_preferred_transport(printer_config)?;
+pub fn options(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_preferred_transport(ctx)?;
     let resp = transport.query_command(transport_cmd::GET_KBOPTION, &[], ChecksumType::Bit7)?;
     println!("Options (raw): {:02X?}", &resp[..16.min(resp.len())]);
     Ok(())
 }
 
 /// Get supported features
-pub fn features(printer_config: Option<PrinterConfig>) -> CommandResult {
-    let transport = open_preferred_transport(printer_config)?;
+pub fn features(ctx: &CmdCtx) -> CommandResult {
+    let transport = open_preferred_transport(ctx)?;
     let resp = transport.query_command(transport_cmd::GET_FEATURE_LIST, &[], ChecksumType::Bit7)?;
     println!("Features (raw): {:02X?}", &resp[..24.min(resp.len())]);
     Ok(())
@@ -256,11 +256,11 @@ pub fn sleep(keyboard: &monsgeek_keyboard::KeyboardInterface) -> CommandResult {
 }
 
 /// Show all device information
-pub fn all(printer_config: Option<PrinterConfig>) -> CommandResult {
+pub fn all(ctx: &CmdCtx) -> CommandResult {
     println!("MonsGeek M1 V5 HE - Device Information");
     println!("======================================\n");
 
-    let transport = open_preferred_transport(printer_config)?;
+    let transport = open_preferred_transport(ctx)?;
     let info = transport.device_info();
     println!(
         "Device: VID={:04X} PID={:04X} type={:?}\n",

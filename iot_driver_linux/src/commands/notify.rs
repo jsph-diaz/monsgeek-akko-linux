@@ -4,12 +4,8 @@ use super::CommandResult;
 
 /// Run the notification daemon.
 #[cfg(feature = "notify")]
-pub async fn daemon(
-    printer_config: Option<monsgeek_transport::PrinterConfig>,
-    fps: u32,
-    power_budget: u32,
-) -> CommandResult {
-    let kb = super::led_stream::open_with_patch_check(printer_config)?;
+pub async fn daemon(ctx: &super::CmdCtx, fps: u32, power_budget: u32) -> CommandResult {
+    let kb = super::led_stream::open_with_patch_check(ctx)?;
 
     let patch = kb.get_patch_info()?.unwrap();
     println!(

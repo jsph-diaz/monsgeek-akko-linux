@@ -782,7 +782,7 @@ impl DriverService {
             return Ok(());
         }
 
-        let kb = crate::commands::open_keyboard(None)
+        let kb = crate::commands::open_keyboard(&crate::commands::CmdCtx::default())
             .map_err(|e| Status::unavailable(format!("No keyboard found: {e}")))?;
 
         let patch = kb

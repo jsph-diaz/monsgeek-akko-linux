@@ -52,6 +52,8 @@ enum BatterySource {
 
 /// Application state
 struct App {
+    /// Device selector from --device flag (index, transport name, or HID path)
+    device_selector: Option<String>,
     info: FirmwareSettings,
     tab: usize,
     selected: usize,
@@ -1663,9 +1665,10 @@ const KEYBOARD_SHORTCUTS: &[(&str, &str)] = &[
 ];
 
 impl App {
-    fn new() -> (Self, mpsc::UnboundedReceiver<AsyncResult>) {
+    fn new(device_selector: Option<String>) -> (Self, mpsc::UnboundedReceiver<AsyncResult>) {
         let (result_tx, result_rx) = mpsc::unbounded_channel();
         let app = Self {
+            device_selector,
             info: FirmwareSettings::default(),
             tab: 0,
             selected: 0,
@@ -1744,11 +1747,64 @@ impl App {
         // Use async device discovery with smart probing
         let discovery = HidDiscovery::new();
 
-        // Probe all devices to find which ones actually respond
-        // This handles cases where dongle is plugged in but keyboard is on BT
-        let transport = discovery
-            .open_preferred()
-            .map_err(|e| format!("Failed to open device: {e}"))?;
+        // If --device was specified, use the resolve logic; otherwise auto-select
+        let transport = if let Some(ref selector) = self.device_selector {
+            use monsgeek_transport::DeviceDiscovery;
+            let resolve_name = |device_id: Option<u32>, vid: u16, pid: u16| -> Option<String> {
+                devices::get_device_info_with_id(device_id.map(|id| id as i32), vid, pid)
+                    .map(|info| info.display_name)
+            };
+            let labeled = discovery
+                .list_labeled_devices(resolve_name)
+                .map_err(|e| format!("Discovery failed: {e}"))?;
+            if labeled.is_empty() {
+                return Err("No supported device found".into());
+            }
+            // Try index
+            if let Ok(idx) = selector.parse::<usize>() {
+                let (p, _) = labeled
+                    .into_iter()
+                    .find(|(_, l)| l.index == idx)
+                    .ok_or_else(|| format!("Device index {idx} out of range"))?;
+                discovery
+                    .open_device(&p.device)
+                    .map_err(|e| format!("Failed to open device: {e}"))?
+            } else {
+                // Try transport name
+                let matches: Vec<_> = labeled
+                    .iter()
+                    .filter(|(_, l)| l.transport_name == selector.as_str())
+                    .collect();
+                if matches.len() == 1 {
+                    discovery
+                        .open_device(&matches[0].0.device)
+                        .map_err(|e| format!("Failed to open device: {e}"))?
+                } else if matches.len() > 1 {
+                    return Err(format!(
+                        "Ambiguous --device '{selector}': {} matches",
+                        matches.len()
+                    ));
+                } else {
+                    // Try path match
+                    let path_matches: Vec<_> = labeled
+                        .iter()
+                        .filter(|(_, l)| l.hid_path.contains(selector.as_str()))
+                        .collect();
+                    if path_matches.len() == 1 {
+                        discovery
+                            .open_device(&path_matches[0].0.device)
+                            .map_err(|e| format!("Failed to open device: {e}"))?
+                    } else {
+                        return Err(format!("No device matches '{selector}'"));
+                    }
+                }
+            }
+        } else {
+            // Default: auto-select best device (TUI picks first, doesn't error on multiple)
+            discovery
+                .open_preferred()
+                .map_err(|e| format!("Failed to open device: {e}"))?
+        };
 
         let transport_info = transport.device_info().clone();
         let vid = transport_info.vid;
@@ -3429,7 +3485,7 @@ fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
 }
 
 /// Run the TUI - called via 'iot_driver tui' command
-pub async fn run() -> io::Result<()> {
+pub async fn run(device_selector: Option<String>) -> io::Result<()> {
     use crossterm::event::KeyModifiers;
 
     // Setup terminal
@@ -3439,7 +3495,7 @@ pub async fn run() -> io::Result<()> {
         .execute(EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    let (mut app, mut result_rx) = App::new();
+    let (mut app, mut result_rx) = App::new(device_selector);
 
     // Try to connect
     if let Err(e) = app.connect() {

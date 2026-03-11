@@ -1,10 +1,10 @@
 //! Reactive mode command handlers (audio, screen).
 
-use super::{setup_interrupt_handler, CommandResult};
+use super::{setup_interrupt_handler, CmdCtx, CommandResult};
 
 /// Run audio reactive LED mode
-pub fn audio(color_mode: &str, hue: f32, sensitivity: f32) -> CommandResult {
-    let keyboard = super::open_keyboard(None).map_err(|e| format!("Failed to open device: {e}"))?;
+pub fn audio(ctx: &CmdCtx, color_mode: &str, hue: f32, sensitivity: f32) -> CommandResult {
+    let keyboard = super::open_keyboard(ctx).map_err(|e| format!("Failed to open device: {e}"))?;
 
     println!(
         "Starting audio reactive mode on {}...",
@@ -53,10 +53,10 @@ pub fn audio_levels() -> CommandResult {
 
 /// Run screen color reactive LED mode
 #[cfg(feature = "screen-capture")]
-pub async fn screen(fps: u32) -> CommandResult {
+pub async fn screen(ctx: &CmdCtx, fps: u32) -> CommandResult {
     let fps = fps.clamp(1, 60);
 
-    let keyboard = super::open_keyboard(None).map_err(|e| format!("Failed to open device: {e}"))?;
+    let keyboard = super::open_keyboard(ctx).map_err(|e| format!("Failed to open device: {e}"))?;
 
     println!(
         "Starting screen color mode on {}...",

@@ -1,16 +1,18 @@
 //! Debug command handlers.
 
-use super::{open_preferred_transport, setup_interrupt_handler, with_keyboard, CommandResult};
+use super::{
+    open_preferred_transport, setup_interrupt_handler, with_keyboard, CmdCtx, CommandResult,
+};
 use iot_driver::protocol::cmd;
 use monsgeek_keyboard::KeyboardInterface;
 use monsgeek_transport::protocol::cmd as transport_cmd;
-use monsgeek_transport::{list_devices_sync, ChecksumType, PrinterConfig, Transport};
+use monsgeek_transport::{list_devices_sync, ChecksumType, Transport};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 /// Test the new transport abstraction layer
-pub fn test_transport(printer_config: Option<PrinterConfig>) -> CommandResult {
+pub fn test_transport(ctx: &CmdCtx) -> CommandResult {
     println!("Testing new transport abstraction layer");
     println!("=======================================\n");
 
@@ -35,7 +37,7 @@ pub fn test_transport(printer_config: Option<PrinterConfig>) -> CommandResult {
 
     // Open first device (with optional monitoring)
     println!("\nOpening first device...");
-    let transport = open_preferred_transport(printer_config.clone())?;
+    let transport = open_preferred_transport(ctx)?;
     let info = transport.device_info();
     println!(
         "  Opened: VID={:04X} PID={:04X} type={:?}",
@@ -84,7 +86,7 @@ pub fn test_transport(printer_config: Option<PrinterConfig>) -> CommandResult {
 
     // Test keyboard interface (includes trigger settings)
     println!("\n--- Testing Keyboard Interface ---");
-    with_keyboard(printer_config, |keyboard| {
+    with_keyboard(ctx, |keyboard| {
         println!(
             "  Opened keyboard: {} keys, magnetism={}",
             keyboard.key_count(),

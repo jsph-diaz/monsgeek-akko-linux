@@ -89,11 +89,11 @@ pub use printer::{
 };
 pub use protocol::{KeyRef, Layer};
 pub use types::{
-    ChecksumType, DiscoveredDevice, DiscoveryEvent, DongleInfo, DongleStatus, RfInfo,
+    ChecksumType, DeviceLabel, DiscoveredDevice, DiscoveryEvent, DongleInfo, DongleStatus, RfInfo,
     TimestampedEvent, TransportDeviceInfo, TransportType, VendorEvent,
 };
 
-pub use discovery::{DeviceDiscovery, HidDiscovery, ProbedDevice};
+pub use discovery::{format_device_list, DeviceDiscovery, HidDiscovery, ProbedDevice};
 pub use flow_control::FlowControlTransport;
 pub use hid_bluetooth::HidBluetoothTransport;
 pub use hid_dongle::HidDongleTransport;
