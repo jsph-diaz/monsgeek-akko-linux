@@ -44,7 +44,7 @@ fn append_log(msg: &str) -> std::io::Result<()> {
 }
 
 fn run() -> Result<()> {
-    println!("MonsGeek Keyboard Recovery Tool v0.1.0");
+    println!("MonsGeek Keyboard Recovery Tool v0.2.1");
     println!("======================================\n");
 
     let dev = try_open_device()?;
@@ -66,19 +66,23 @@ fn run() -> Result<()> {
     }
 
     println!("What would you like to do?");
-    println!("  1) Factory reset (erase config only — keeps current firmware)");
+    println!("  1) Factory reset (erase settings, keymaps, macros — keeps firmware + calibration)");
     println!("  2) Flash stock firmware v407 + factory reset");
-    println!("  3) Flash a custom firmware file");
-    println!("  4) Read device info");
+    println!("  3) Deep reset (factory reset + erase calibration data — requires recalibration)");
+    println!("  4) Flash a custom firmware file");
+    println!("  5) Read device info");
+    println!("  6) Dump flash to file (for diagnosis)");
     println!();
 
-    let choice = prompt("Choice [1-4]")?;
+    let choice = prompt("Choice [1-6]")?;
 
     match choice.trim() {
         "1" => cmd_factory_reset(&dev)?,
         "2" => cmd_flash_stock(&dev)?,
-        "3" => cmd_flash_custom(&dev)?,
-        "4" => cmd_info(&dev, &id_data)?,
+        "3" => cmd_deep_reset(&dev)?,
+        "4" => cmd_flash_custom(&dev)?,
+        "5" => cmd_info(&dev, &id_data)?,
+        "6" => cmd_dump(&dev)?,
         _ => println!("Invalid choice."),
     }
 
@@ -139,23 +143,30 @@ fn try_open_device() -> Result<dfuse::DfuSeDevice> {
 }
 
 fn cmd_factory_reset(dev: &dfuse::DfuSeDevice) -> Result<()> {
-    println!("\nThis will erase the config area (keymaps, macros, LED settings).");
-    println!("Firmware itself will NOT be touched.");
+    println!("\nThis will erase ALL user data (config, keymaps, FN layers, macros, userpics).");
+    println!("Firmware and calibration data will NOT be touched.");
+    println!(
+        "Erase region: 0x{:08X}–0x{:08X} ({}KB)",
+        flash_map::CONFIG_START,
+        flash_map::USER_DATA_END,
+        flash_map::USER_DATA_SIZE / 1024
+    );
     if !confirm("Proceed?")? {
         println!("Aborted.");
         return Ok(());
     }
 
-    println!("Erasing config area at 0x{:08X}...", flash_map::CONFIG_START);
-    dev.write_data(flash_map::CONFIG_START, flash_map::CONFIG_ERASE_IMAGE)?;
+    println!("Erasing user data...");
+    dev.write_data(flash_map::CONFIG_START, flash_map::USER_DATA_ERASE)?;
 
     println!("\nDone! Unplug device, disconnect BOOT0, replug.");
+    println!("The keyboard will regenerate default keymaps on first boot.");
     Ok(())
 }
 
 fn cmd_flash_stock(dev: &dfuse::DfuSeDevice) -> Result<()> {
     println!(
-        "\nThis will flash stock firmware v407 ({} bytes) and erase config.",
+        "\nThis will flash stock firmware v407 ({} bytes) and erase all user data.",
         FIRMWARE_V407.len()
     );
     if !confirm("Proceed?")? {
@@ -170,10 +181,39 @@ fn cmd_flash_stock(dev: &dfuse::DfuSeDevice) -> Result<()> {
     );
     dev.write_data(flash_map::FIRMWARE_START, FIRMWARE_V407)?;
 
-    println!("Erasing config area...");
-    dev.write_data(flash_map::CONFIG_START, flash_map::CONFIG_ERASE_IMAGE)?;
+    println!("Erasing user data (config, keymaps, macros)...");
+    dev.write_data(flash_map::CONFIG_START, flash_map::USER_DATA_ERASE)?;
 
     println!("\nDone! Unplug device, disconnect BOOT0, replug.");
+    println!("The keyboard will regenerate default keymaps on first boot.");
+    Ok(())
+}
+
+fn cmd_deep_reset(dev: &dfuse::DfuSeDevice) -> Result<()> {
+    println!("\nThis will erase ALL user data AND calibration data.");
+    println!("You will need to recalibrate the keyboard through the Monsgeek app afterward.");
+    println!(
+        "Erase regions:\n  User data:   0x{:08X}–0x{:08X} ({}KB)\n  Calibration: 0x{:08X}–0x{:08X} ({}KB)",
+        flash_map::CONFIG_START,
+        flash_map::USER_DATA_END,
+        flash_map::USER_DATA_SIZE / 1024,
+        flash_map::CALIBRATION_START,
+        flash_map::CALIBRATION_END,
+        flash_map::CALIBRATION_SIZE / 1024,
+    );
+    if !confirm("Proceed?")? {
+        println!("Aborted.");
+        return Ok(());
+    }
+
+    println!("Erasing user data...");
+    dev.write_data(flash_map::CONFIG_START, flash_map::USER_DATA_ERASE)?;
+
+    println!("Erasing calibration data...");
+    dev.write_data(flash_map::CALIBRATION_START, flash_map::CALIBRATION_ERASE)?;
+
+    println!("\nDone! Unplug device, disconnect BOOT0, replug.");
+    println!("IMPORTANT: You must run calibration in the Monsgeek app before keys will work.");
     Ok(())
 }
 
@@ -214,7 +254,7 @@ fn cmd_flash_custom(dev: &dfuse::DfuSeDevice) -> Result<()> {
     Ok(())
 }
 
-fn cmd_info(_dev: &dfuse::DfuSeDevice, id_data: &[u8]) -> Result<()> {
+fn cmd_info(dev: &dfuse::DfuSeDevice, id_data: &[u8]) -> Result<()> {
     let id_str: String = id_data
         .iter()
         .take_while(|&&b| b >= 0x20 && b < 0x7F)
@@ -237,7 +277,7 @@ fn cmd_info(_dev: &dfuse::DfuSeDevice, id_data: &[u8]) -> Result<()> {
     }
     println!();
 
-    // Read firmware version area (just after chip ID header, first 512 bytes)
+    // Chip ID header
     println!("\nFirst 32 bytes at 0x{:08X}:", flash_map::FIRMWARE_START);
     for (i, chunk) in id_data.chunks(16).enumerate() {
         print!("  {:08X}: ", flash_map::FIRMWARE_START + (i as u32) * 16);
@@ -246,6 +286,124 @@ fn cmd_info(_dev: &dfuse::DfuSeDevice, id_data: &[u8]) -> Result<()> {
         }
         println!();
     }
+
+    // Config header status
+    println!("\nConfig region (0x{:08X}):", flash_map::CONFIG_START);
+    match dev.read_data(flash_map::CONFIG_START, 32) {
+        Ok(cfg) => {
+            let all_ff = cfg.iter().all(|&b| b == 0xFF);
+            let all_zero = cfg.iter().all(|&b| b == 0x00);
+            print!("  ");
+            for b in &cfg[..cfg.len().min(32)] {
+                print!("{b:02X} ");
+            }
+            println!();
+            if all_ff {
+                println!("  Status: ERASED (factory defaults will be used)");
+            } else if all_zero {
+                println!("  Status: ALL ZEROS (possibly corrupt)");
+            } else {
+                println!("  Status: has data");
+            }
+        }
+        Err(e) => println!("  Read failed: {e}"),
+    }
+
+    // Calibration data status
+    println!("\nCalibration data (0x{:08X}):", flash_map::CALIBRATION_START);
+    match dev.read_data(flash_map::CALIBRATION_START, 64) {
+        Ok(cal) => {
+            let all_ff = cal.iter().all(|&b| b == 0xFF);
+            let all_zero = cal.iter().all(|&b| b == 0x00);
+            print!("  ");
+            for b in &cal[..cal.len().min(32)] {
+                print!("{b:02X} ");
+            }
+            println!();
+            if all_ff {
+                println!("  Status: ERASED (no calibration — keys will NOT work until calibrated)");
+            } else if all_zero {
+                println!("  Status: ALL ZEROS (possibly corrupt)");
+            } else {
+                println!("  Status: has data (calibrated)");
+            }
+        }
+        Err(e) => println!("  Read failed: {e}"),
+    }
+
+    // Keymap data status
+    println!("\nKeymap data (0x{:08X}):", flash_map::CONFIG_START + 0x800);
+    match dev.read_data(flash_map::CONFIG_START + 0x800, 32) {
+        Ok(km) => {
+            let all_ff = km.iter().all(|&b| b == 0xFF);
+            print!("  ");
+            for b in &km[..km.len().min(32)] {
+                print!("{b:02X} ");
+            }
+            println!();
+            if all_ff {
+                println!("  Status: ERASED (firmware will use default keymaps)");
+            } else {
+                println!("  Status: has data");
+            }
+        }
+        Err(e) => println!("  Read failed: {e}"),
+    }
+
+    Ok(())
+}
+
+fn cmd_dump(dev: &dfuse::DfuSeDevice) -> Result<()> {
+    println!("\nThis will read the full flash (256KB) and save it to a file.");
+    println!("The dump can be shared for diagnosis — it does NOT contain personal data,");
+    println!("only firmware code, keymaps, and calibration values.\n");
+
+    // Default filename next to the exe, or current dir
+    let default_name = "flash_dump.bin";
+    let path_str = prompt(&format!("Output file [{default_name}]"))?;
+    let path_str = path_str.trim();
+    let path = if path_str.is_empty() {
+        PathBuf::from(default_name)
+    } else {
+        PathBuf::from(path_str)
+    };
+
+    let total = (flash_map::FLASH_END - flash_map::BOOTLOADER_START) as usize;
+    println!(
+        "Reading 0x{:08X}–0x{:08X} ({total} bytes = {}KB)...",
+        flash_map::BOOTLOADER_START,
+        flash_map::FLASH_END,
+        total / 1024
+    );
+
+    // Read in 2KB chunks with progress
+    let chunk_size = 2048usize;
+    let total_chunks = (total + chunk_size - 1) / chunk_size;
+    let mut data = Vec::with_capacity(total);
+
+    for i in 0..total_chunks {
+        let addr = flash_map::BOOTLOADER_START + (i as u32) * chunk_size as u32;
+        let remaining = total - data.len();
+        let this_size = remaining.min(chunk_size);
+        print!(
+            "\r  reading {}/{}KB...",
+            (i * chunk_size) / 1024,
+            total / 1024
+        );
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+        let chunk = dev.read_data(addr, this_size)?;
+        data.extend_from_slice(&chunk);
+    }
+    println!(
+        "\r  read {} bytes ({} KB).                    ",
+        data.len(),
+        data.len() / 1024
+    );
+
+    std::fs::write(&path, &data)
+        .with_context(|| format!("Failed to write {}", path.display()))?;
+    println!("\nSaved to: {}", path.display());
+    println!("You can share this file for diagnosis.");
 
     Ok(())
 }

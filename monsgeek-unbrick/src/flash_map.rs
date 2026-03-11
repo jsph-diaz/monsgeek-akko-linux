@@ -10,15 +10,28 @@ pub const BOOTLOADER_END: u32 = 0x0800_4FFF;
 /// Firmware code region
 pub const FIRMWARE_START: u32 = 0x0800_5000;
 
-/// Config header (profile, LED, settings) — erase this for factory reset
+/// Config header (profile, LED, settings)
 pub const CONFIG_START: u32 = 0x0802_8000;
-pub const CONFIG_SIZE: u32 = 2048;
+
+/// Full user data region: config + keymaps + FN layers + macros + userpics
+/// 0x08028000–0x0802FFFF = 32KB (16 pages)
+pub const USER_DATA_END: u32 = 0x0803_0000;
+pub const USER_DATA_SIZE: u32 = USER_DATA_END - CONFIG_START;
+
+/// Magnetism calibration data: baseline + per-key actuation thresholds
+/// 0x08032000–0x080377FF = 22KB (11 pages)
+pub const CALIBRATION_START: u32 = 0x0803_2000;
+pub const CALIBRATION_END: u32 = 0x0803_8000;
+pub const CALIBRATION_SIZE: u32 = CALIBRATION_END - CALIBRATION_START;
 
 /// Flash end (256KB)
 pub const FLASH_END: u32 = 0x0804_0000;
 
-/// DfuSe erase image: 0xFF page at CONFIG_START for factory reset
-pub const CONFIG_ERASE_IMAGE: &[u8; FLASH_PAGE_SIZE as usize] = &[0xFF; FLASH_PAGE_SIZE as usize];
+/// Erase image: all 0xFF. Factory reset erases full user data region (32KB).
+pub const USER_DATA_ERASE: &[u8] = &[0xFF; USER_DATA_SIZE as usize];
+
+/// Erase image for calibration region (22KB).
+pub const CALIBRATION_ERASE: &[u8] = &[0xFF; CALIBRATION_SIZE as usize];
 
 /// Chip ID strings at 0x08005000
 pub const CHIP_ID_KEYBOARD: &[u8] = b"AT32F405 8KMKB";

@@ -52,9 +52,12 @@ jobs:
             Double-click the .exe on a Windows machine with the keyboard in DFU mode (BOOT0 bridged to 3.3V).
 
             **Features:**
-            - Factory reset (erase config only)
-            - Flash stock firmware v407
+            - Factory reset (erase all user data: config, keymaps, FN layers, macros, userpics)
+            - Flash stock firmware v407 + factory reset
+            - Deep reset (also erase calibration — for when keys don't respond after factory reset)
             - Flash custom firmware file
+            - Dump full flash to file (for remote diagnosis)
+            - Device info with calibration status diagnostics
             - Auto WinUSB driver installation
 
             No installation required — single standalone .exe.
