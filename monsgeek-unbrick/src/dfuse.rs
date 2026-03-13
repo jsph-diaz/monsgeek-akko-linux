@@ -229,6 +229,36 @@ impl DfuSeDevice {
         }
         println!("\r  wrote {} bytes.                        ", data.len());
 
+        // Verify: read back and compare
+        print!("  verifying...");
+        std::io::stdout().flush().ok();
+        let readback = self.read_data(addr, data.len())?;
+        if readback.len() != data.len() {
+            bail!(
+                "verify failed: read back {} bytes, expected {}",
+                readback.len(),
+                data.len()
+            );
+        }
+        let mismatches: Vec<usize> = readback
+            .iter()
+            .zip(data.iter())
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, _)| i)
+            .collect();
+        if !mismatches.is_empty() {
+            let first = mismatches[0];
+            bail!(
+                "verify failed: {} bytes differ (first at offset 0x{:X}: wrote 0x{:02X}, read 0x{:02X})",
+                mismatches.len(),
+                first,
+                data[first],
+                readback[first]
+            );
+        }
+        println!("\r  verified OK.                          ");
+
         Ok(())
     }
 
