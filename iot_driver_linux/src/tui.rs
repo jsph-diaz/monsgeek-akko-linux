@@ -39,7 +39,17 @@ use monsgeek_keyboard::{
     KeyboardInterface, KeyboardOptions as KbOptions, LedMode, LedParams, Precision, RgbColor,
     SleepTimeSettings, TimestampedEvent, VendorEvent,
 };
-use monsgeek_transport::{FlowControlTransport, HidDiscovery, Transport};
+use monsgeek_transport::{FlowControlTransport, HidDiscovery, Transport, TransportType};
+
+/// Map TransportType to a short display name
+fn transport_type_name(tt: TransportType) -> &'static str {
+    match tt {
+        TransportType::HidWired => "usb",
+        TransportType::HidDongle => "dongle",
+        TransportType::Bluetooth => "bt",
+        TransportType::WebRtc => "webrtc",
+    }
+}
 
 /// Battery data source
 #[derive(Debug, Clone)]
@@ -61,7 +71,11 @@ struct App {
     depth_monitoring: bool,
     status_msg: String,
     connected: bool,
+    /// Monotonically increasing generation counter; bumped on device switch.
+    /// Async results carrying an older generation are silently discarded.
+    device_generation: u64,
     device_name: String,
+    transport_name: &'static str,
     key_count: u8,
     has_sidelight: bool,
     has_magnetism: bool,
@@ -108,6 +122,13 @@ struct App {
     is_wireless: bool,
     // Help popup
     show_help: bool,
+    // Device picker popup
+    show_device_picker: bool,
+    device_picker_items: Vec<(
+        monsgeek_transport::ProbedDevice,
+        monsgeek_transport::DeviceLabel,
+    )>,
+    device_picker_selected: usize,
     // Keyboard interface (async, wrapped in Arc for spawning tasks)
     keyboard: Option<Arc<KeyboardInterface>>,
     // Event receiver for low-latency EP2 notifications (with timestamps)
@@ -115,7 +136,7 @@ struct App {
     loading: LoadingStates,
     throbber_state: ThrobberState,
     // Async result channel (sender for spawned tasks)
-    result_tx: mpsc::UnboundedSender<AsyncResult>,
+    result_tx: mpsc::UnboundedSender<GenerationalResult>,
     // Hex color input
     hex_editing: bool,
     hex_input: String,
@@ -147,6 +168,7 @@ enum InfoTag {
     #[default]
     ReadOnly,
     Separator,
+    Device,
     FirmwareCheck,
     Profile,
     Debounce,
@@ -1444,6 +1466,28 @@ enum AsyncResult {
     SetComplete(String, Result<(), String>), // (field_name, result)
 }
 
+/// An async result tagged with the device generation it was produced for.
+struct GenerationalResult {
+    generation: u64,
+    result: AsyncResult,
+}
+
+/// A sender that automatically tags results with a device generation.
+#[derive(Clone)]
+struct GenSender {
+    tx: mpsc::UnboundedSender<GenerationalResult>,
+    generation: u64,
+}
+
+impl GenSender {
+    fn send(&self, result: AsyncResult) {
+        let _ = self.tx.send(GenerationalResult {
+            generation: self.generation,
+            result,
+        });
+    }
+}
+
 /// History length for time series (samples)
 const DEPTH_HISTORY_LEN: usize = 100;
 
@@ -1519,6 +1563,11 @@ const TUI_KEYBINDS: &[Keybind] = &[
     Keybind {
         keys: "c",
         description: "Connect to device",
+        context: KeyContext::Global,
+    },
+    Keybind {
+        keys: "d",
+        description: "Device picker",
         context: KeyContext::Global,
     },
     Keybind {
@@ -1665,7 +1714,7 @@ const KEYBOARD_SHORTCUTS: &[(&str, &str)] = &[
 ];
 
 impl App {
-    fn new(device_selector: Option<String>) -> (Self, mpsc::UnboundedReceiver<AsyncResult>) {
+    fn new(device_selector: Option<String>) -> (Self, mpsc::UnboundedReceiver<GenerationalResult>) {
         let (result_tx, result_rx) = mpsc::unbounded_channel();
         let app = Self {
             device_selector,
@@ -1676,7 +1725,9 @@ impl App {
             depth_monitoring: false,
             status_msg: String::new(),
             connected: false,
+            device_generation: 0,
             device_name: String::new(),
+            transport_name: "",
             key_count: 0,
             has_sidelight: false,
             has_magnetism: false,
@@ -1717,6 +1768,10 @@ impl App {
             is_wireless: false,
             // Help popup
             show_help: false,
+            // Device picker popup
+            show_device_picker: false,
+            device_picker_items: Vec::new(),
+            device_picker_selected: 0,
             // Keyboard interface (wrapped in Arc for spawning tasks)
             keyboard: None,
             // Event receiver (subscribed on connect)
@@ -1743,7 +1798,18 @@ impl App {
         (app, result_rx)
     }
 
+    /// Create a generation-tagged sender for spawning async tasks.
+    fn gen_sender(&self) -> GenSender {
+        GenSender {
+            tx: self.result_tx.clone(),
+            generation: self.device_generation,
+        }
+    }
+
     fn connect(&mut self) -> Result<(), String> {
+        // Bump generation so in-flight async results from the old device are discarded
+        self.device_generation += 1;
+
         // Use async device discovery with smart probing
         let discovery = HidDiscovery::new();
 
@@ -1890,6 +1956,7 @@ impl App {
         self.event_rx = keyboard.subscribe_events();
 
         self.device_name = device_name;
+        self.transport_name = transport_type_name(transport_info.transport_type);
         self.key_count = key_count;
         self.has_sidelight = has_sidelight;
         self.has_magnetism = has_magnetism;
@@ -1946,6 +2013,181 @@ impl App {
         Ok(())
     }
 
+    /// Scan for devices and populate the device picker list.
+    fn scan_device_picker(&mut self) {
+        let discovery = HidDiscovery::new();
+        let resolve_name = |device_id: Option<u32>, vid: u16, pid: u16| -> Option<String> {
+            devices::get_device_info_with_id(device_id.map(|id| id as i32), vid, pid)
+                .map(|info| info.display_name)
+        };
+        match discovery.list_labeled_devices(resolve_name) {
+            Ok(items) => {
+                self.device_picker_items = items;
+                self.device_picker_selected = 0;
+            }
+            Err(e) => {
+                self.status_msg = format!("Device scan failed: {e}");
+                self.device_picker_items.clear();
+            }
+        }
+    }
+
+    /// Connect to the device currently selected in the device picker.
+    fn connect_to_picked_device(&mut self) {
+        use monsgeek_transport::DeviceDiscovery;
+
+        // Bump generation so in-flight async results from the old device are discarded
+        self.device_generation += 1;
+
+        if self.device_picker_items.is_empty() {
+            return;
+        }
+        let idx = self
+            .device_picker_selected
+            .min(self.device_picker_items.len() - 1);
+        let (probed, label) = &self.device_picker_items[idx];
+
+        let discovery = HidDiscovery::new();
+        match discovery.open_device(&probed.device) {
+            Ok(transport) => {
+                // Set device_selector to the index so connect() logic is bypassed
+                self.device_selector = Some(label.index.to_string());
+                self.show_device_picker = false;
+
+                // Now do the full connection setup with this transport
+                let transport_info = transport.device_info().clone();
+                let vid = transport_info.vid;
+                let pid = transport_info.pid;
+                let flow_transport = Arc::new(FlowControlTransport::new(transport));
+
+                let device_id = flow_transport
+                    .query_command(
+                        cmd::GET_USB_VERSION,
+                        &[],
+                        monsgeek_transport::ChecksumType::Bit7,
+                    )
+                    .ok()
+                    .filter(|r| r.len() >= 5 && r[0] == cmd::GET_USB_VERSION)
+                    .map(|r| u32::from_le_bytes([r[1], r[2], r[3], r[4]]) as i32);
+
+                let mut key_count = devices::key_count_with_id(device_id, vid, pid);
+                let has_magnetism = devices::has_magnetism_with_id(device_id, vid, pid);
+                let device_info = devices::get_device_info_with_id(device_id, vid, pid);
+                let has_sidelight = device_info
+                    .as_ref()
+                    .map(|d| d.has_sidelight)
+                    .unwrap_or(false);
+                let device_name = device_info
+                    .as_ref()
+                    .map(|d| d.display_name.clone())
+                    .or_else(|| transport_info.product_name.clone())
+                    .unwrap_or_else(|| format!("Device {vid:04x}:{pid:04x}"));
+
+                let protocol = monsgeek_transport::protocol::ProtocolFamily::detect(
+                    device_info.as_ref().map(|d| d.name.as_str()),
+                    pid,
+                );
+
+                let registry = crate::profile_registry();
+                let matrix_db = device_id.and_then(|id| registry.get_device_matrix(id));
+                if let Some(matrix) = matrix_db {
+                    let matrix_size = matrix.matrix_size() as u8;
+                    if key_count == 0 || (key_count < matrix_size && matrix_size > 0) {
+                        key_count = matrix_size;
+                    }
+                }
+
+                let mut kb =
+                    KeyboardInterface::new(flow_transport, key_count, has_magnetism, protocol);
+
+                let profile = device_id
+                    .and_then(|id| registry.find_by_id(id as u32))
+                    .or_else(|| registry.find_by_vid_pid(vid, pid));
+                if let Some(p) = profile {
+                    let names: Vec<String> = (0..p.matrix_size())
+                        .map(|i| p.matrix_key_name(i as u8).to_string())
+                        .collect();
+                    kb.set_matrix_key_names(names);
+                } else if let Some(matrix) = matrix_db {
+                    let size = matrix.matrix_size();
+                    let names: Vec<String> = (0..size)
+                        .map(|i| matrix.key_name(i).unwrap_or("").to_string())
+                        .collect();
+                    kb.set_matrix_key_names(names);
+                }
+
+                if let Some(matrix) = matrix_db {
+                    if let Some(positions) = &matrix.non_analog_positions {
+                        kb.set_non_analog_positions(positions.clone());
+                    }
+                }
+
+                let matrix_size = kb.matrix_size();
+                let matrix_key_names: Vec<String> = (0..matrix_size)
+                    .map(|i| kb.matrix_key_name(i).to_string())
+                    .collect();
+
+                let keyboard = Arc::new(kb);
+                let is_wireless = keyboard.is_wireless();
+
+                self.event_rx = keyboard.subscribe_events();
+                self.device_name = device_name;
+                self.transport_name = transport_type_name(transport_info.transport_type);
+                self.key_count = key_count;
+                self.has_sidelight = has_sidelight;
+                self.has_magnetism = has_magnetism;
+                self.matrix_size = matrix_size;
+                self.matrix_key_names = matrix_key_names;
+                self.is_wireless = is_wireless;
+                self.keyboard = Some(keyboard);
+
+                self.key_depths = vec![0.0; self.key_count as usize];
+                self.depth_history =
+                    vec![VecDeque::with_capacity(DEPTH_HISTORY_LEN); self.key_count as usize];
+                self.depth_last_update = vec![Instant::now(); self.key_count as usize];
+                self.active_keys.clear();
+                self.selected_keys.clear();
+
+                if self.is_wireless {
+                    self.battery_source =
+                        if let Some(path) = find_hid_battery_power_supply(vid, pid) {
+                            Some(BatterySource::Kernel(path))
+                        } else {
+                            Some(BatterySource::Vendor)
+                        };
+                }
+
+                self.connected = true;
+
+                if self.is_wireless {
+                    if let Some(ref keyboard) = self.keyboard {
+                        let transport = keyboard.transport();
+                        self.dongle_info = transport.query_dongle_info().ok().flatten();
+                        self.dongle_status = transport.query_dongle_status().ok().flatten();
+                        self.rf_info = transport.query_rf_info().ok().flatten();
+                    }
+                    self.refresh_battery();
+                }
+
+                // Reset loading states so tabs re-fetch
+                self.loading = LoadingStates::default();
+                self.info = FirmwareSettings::default();
+                self.triggers = None;
+                self.remaps.clear();
+                self.patch_info = None;
+                self.dongle_patch_info = None;
+                self.firmware_check = None;
+
+                self.status_msg = format!("Connected to {}", self.device_name);
+                self.load_device_info();
+            }
+            Err(e) => {
+                self.status_msg = format!("Failed to open device: {e}");
+                self.show_device_picker = false;
+            }
+        }
+    }
+
     /// Load all device info (all queries for tabs 0/1)
     /// Spawns background tasks to avoid blocking the UI
     fn load_device_info(&mut self) {
@@ -1966,7 +2208,7 @@ impl App {
         self.loading.patch_info = LoadState::Loading;
 
         // Spawn background tasks for each query
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
 
         // Device ID + Version (combined query)
         {
@@ -1977,7 +2219,7 @@ impl App {
                     (Ok(id), Ok(ver)) => Ok((id, ver)),
                     (Err(e), _) | (_, Err(e)) => Err(e.to_string()),
                 };
-                let _ = tx.send(AsyncResult::DeviceIdAndVersion(result));
+                tx.send(AsyncResult::DeviceIdAndVersion(result));
             });
         }
 
@@ -1987,7 +2229,7 @@ impl App {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let result = kb.get_profile().map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::Profile(result));
+                tx.send(AsyncResult::Profile(result));
             });
         }
 
@@ -1997,7 +2239,7 @@ impl App {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let result = kb.get_debounce().map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::Debounce(result));
+                tx.send(AsyncResult::Debounce(result));
             });
         }
 
@@ -2010,7 +2252,7 @@ impl App {
                     .get_polling_rate()
                     .map(|r| r as u16)
                     .map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::PollingRate(result));
+                tx.send(AsyncResult::PollingRate(result));
             });
         }
 
@@ -2020,7 +2262,7 @@ impl App {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let result = kb.get_led_params().map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::LedParams(result));
+                tx.send(AsyncResult::LedParams(result));
             });
         }
 
@@ -2030,7 +2272,7 @@ impl App {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let result = kb.get_side_led_params().map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::SideLedParams(result));
+                tx.send(AsyncResult::SideLedParams(result));
             });
         }
 
@@ -2040,7 +2282,7 @@ impl App {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let result = kb.get_kb_options().map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::KbOptions(result));
+                tx.send(AsyncResult::KbOptions(result));
             });
         }
 
@@ -2050,7 +2292,7 @@ impl App {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let result = kb.get_precision().map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::Precision(result));
+                tx.send(AsyncResult::Precision(result));
             });
         }
 
@@ -2060,7 +2302,7 @@ impl App {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let result = kb.get_sleep_time().map_err(|e| e.to_string());
-                let _ = tx.send(AsyncResult::SleepTime(result));
+                tx.send(AsyncResult::SleepTime(result));
             });
         }
 
@@ -2115,7 +2357,7 @@ impl App {
                         }
                         Err(e) => Err(e.to_string()),
                     };
-                let _ = tx.send(AsyncResult::PatchInfo(result));
+                tx.send(AsyncResult::PatchInfo(result));
             });
         }
 
@@ -2136,7 +2378,7 @@ impl App {
                     Ok(None) => Err("not available".to_string()),
                     Err(e) => Err(e.to_string()),
                 };
-                let _ = tx.send(AsyncResult::DonglePatchInfo(result));
+                tx.send(AsyncResult::DonglePatchInfo(result));
             });
         }
     }
@@ -2149,7 +2391,7 @@ impl App {
         };
 
         self.loading.triggers = LoadState::Loading;
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
         tokio::spawn(async move {
             let result = keyboard
                 .get_all_triggers()
@@ -2163,7 +2405,7 @@ impl App {
                     top_deadzone: triggers.top_deadzone,
                 })
                 .map_err(|e| e.to_string());
-            let _ = tx.send(AsyncResult::Triggers(result));
+            tx.send(AsyncResult::Triggers(result));
         });
     }
 
@@ -2198,7 +2440,7 @@ impl App {
                 let Some(keyboard) = self.keyboard.clone() else {
                     return;
                 };
-                let tx = self.result_tx.clone();
+                let tx = self.gen_sender();
                 tokio::spawn(async move {
                     let result = keyboard
                         .get_battery()
@@ -2209,7 +2451,7 @@ impl App {
                             idle: kb_info.idle,
                         })
                         .map_err(|e| e.to_string());
-                    let _ = tx.send(AsyncResult::Battery(result));
+                    tx.send(AsyncResult::Battery(result));
                 });
             }
             None => {}
@@ -2225,7 +2467,7 @@ impl App {
 
         let device_id = self.info.device_id;
         let local_version = self.info.version;
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
 
         self.loading.firmware_check = LoadState::Loading;
         self.status_msg = "Checking for firmware updates...".to_string();
@@ -2247,7 +2489,7 @@ impl App {
                 },
             };
 
-            let _ = tx.send(AsyncResult::FirmwareCheck(result));
+            tx.send(AsyncResult::FirmwareCheck(result));
         });
     }
 
@@ -2528,10 +2770,10 @@ impl App {
         };
 
         self.loading.options = LoadState::Loading;
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
         tokio::spawn(async move {
             let result = keyboard.get_kb_options().map_err(|e| e.to_string());
-            let _ = tx.send(AsyncResult::Options(result));
+            tx.send(AsyncResult::Options(result));
         });
     }
 
@@ -2676,16 +2918,16 @@ impl App {
         };
 
         self.loading.remaps = LoadState::Loading;
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
         tokio::spawn(async move {
             match keymap::load_async(&keyboard) {
                 Ok(km) => {
                     // Collect only remapped entries (matching old behavior)
                     let remaps: Vec<KeyEntry> = km.remaps().cloned().collect();
-                    let _ = tx.send(AsyncResult::Remaps(Ok(remaps)));
+                    tx.send(AsyncResult::Remaps(Ok(remaps)));
                 }
                 Err(e) => {
-                    let _ = tx.send(AsyncResult::Remaps(Err(e.to_string())));
+                    tx.send(AsyncResult::Remaps(Err(e.to_string())));
                 }
             }
         });
@@ -2708,14 +2950,14 @@ impl App {
             return;
         };
 
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
         let action = *action;
         let position = matrix::key_name(key_index);
         self.status_msg = format!("Remapping {position}...");
 
         tokio::spawn(async move {
             let result = keymap::set_key_async(&keyboard, key_index, layer, &action);
-            let _ = tx.send(AsyncResult::SetComplete(
+            tx.send(AsyncResult::SetComplete(
                 "Remap".to_string(),
                 result.map_err(|e: monsgeek_keyboard::KeyboardError| e.to_string()),
             ));
@@ -2730,13 +2972,13 @@ impl App {
         };
 
         let position = matrix::key_name(key_index);
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
         self.status_msg = format!("Resetting {position}...");
 
         tokio::spawn(async move {
             let result =
                 keymap::reset_key_async(&keyboard, key_index, layer).map_err(|e| e.to_string());
-            let _ = tx.send(AsyncResult::SetComplete("Remap".to_string(), result));
+            tx.send(AsyncResult::SetComplete("Remap".to_string(), result));
         });
     }
 
@@ -2748,13 +2990,13 @@ impl App {
         };
 
         let events = events.to_vec();
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
         self.status_msg = format!("Setting macro {index}...");
         tokio::spawn(async move {
             let result = keyboard
                 .set_macro(index, &events, repeat)
                 .map_err(|e| e.to_string());
-            let _ = tx.send(AsyncResult::SetComplete("Macro".to_string(), result));
+            tx.send(AsyncResult::SetComplete("Macro".to_string(), result));
         });
     }
 
@@ -2776,7 +3018,7 @@ impl App {
         };
 
         self.loading.macros = LoadState::Loading;
-        let tx = self.result_tx.clone();
+        let tx = self.gen_sender();
         tokio::spawn(async move {
             let mut slots = Vec::new();
             for i in 0..8u8 {
@@ -2802,7 +3044,7 @@ impl App {
                 };
                 slots.push(slot);
             }
-            let _ = tx.send(AsyncResult::Macros(Ok(slots)));
+            tx.send(AsyncResult::Macros(Ok(slots)));
         });
     }
 
@@ -3520,8 +3762,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
 
         tokio::select! {
             // Handle async results from background tasks
-            Some(result) = result_rx.recv() => {
-                app.process_async_result(result);
+            Some(gr) = result_rx.recv() => {
+                // Discard results from a previous device generation
+                if gr.generation == app.device_generation {
+                    app.process_async_result(gr.result);
+                }
             }
             // Handle terminal events
             maybe_event = event_stream.next() => {
@@ -3624,6 +3869,32 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 if matches!(ed.field, BindingField::Filter | BindingField::MacroText) {
                                     ed.handle_char(c);
                                 }
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
+                    // Device picker popup handling
+                    if app.show_device_picker {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('d') => {
+                                app.show_device_picker = false;
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                if app.device_picker_selected > 0 {
+                                    app.device_picker_selected -= 1;
+                                }
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                if app.device_picker_selected + 1
+                                    < app.device_picker_items.len()
+                                {
+                                    app.device_picker_selected += 1;
+                                }
+                            }
+                            KeyCode::Enter => {
+                                app.connect_to_picked_device();
                             }
                             _ => {}
                         }
@@ -3920,6 +4191,10 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                         }
                         KeyCode::Enter if app.tab == 0 => {
                             match app.info_tags.get(app.selected).copied().unwrap_or(InfoTag::ReadOnly) {
+                                InfoTag::Device => {
+                                    app.scan_device_picker();
+                                    app.show_device_picker = true;
+                                }
                                 InfoTag::FirmwareCheck => app.check_firmware(),
                                 InfoTag::LedColorHex => app.start_hex_input(HexColorTarget::MainLed),
                                 InfoTag::SideColorHex => app.start_hex_input(HexColorTarget::SideLed),
@@ -4001,6 +4276,10 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.load_device_info();
                                 }
                             }
+                        }
+                        KeyCode::Char('d') if app.tab != 2 => {
+                            app.scan_device_picker();
+                            app.show_device_picker = true;
                         }
                         KeyCode::Char('1') if key.modifiers.contains(KeyModifiers::CONTROL) => app.set_profile(0),
                         KeyCode::Char('2') if key.modifiers.contains(KeyModifiers::CONTROL) => app.set_profile(1),
@@ -4372,6 +4651,11 @@ fn ui(f: &mut Frame, app: &mut App) {
         render_help_popup(f, f.area());
     }
 
+    // Device picker popup (renders on top)
+    if app.show_device_picker {
+        render_device_picker(f, app, f.area());
+    }
+
     // Trigger edit modal (renders on top)
     if app.trigger_edit_modal.is_some() {
         render_trigger_edit_modal(f, app, f.area());
@@ -4492,6 +4776,71 @@ fn render_help_popup(f: &mut Frame, area: Rect) {
         )
         .wrap(Wrap { trim: false });
     f.render_widget(kb_help, columns[1]);
+}
+
+/// Render device picker popup
+fn render_device_picker(f: &mut Frame, app: &App, area: Rect) {
+    let item_count = app.device_picker_items.len();
+    // Size: fixed width, height based on items (min 3 for empty message)
+    let popup_height = (item_count as u16 + 4).clamp(5, area.height.saturating_sub(4));
+    let popup_width = 60.min(area.width.saturating_sub(4));
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    if item_count == 0 {
+        let msg = Paragraph::new("No devices found.")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .title(" Device Picker ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+        f.render_widget(msg, popup_area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .device_picker_items
+        .iter()
+        .enumerate()
+        .map(|(i, (probed, label))| {
+            let connected_marker = if !probed.responsive { " (asleep)" } else { "" };
+            let version_str = label
+                .version
+                .map(|v| format!(" v{}.{:02}", v / 100, v % 100))
+                .unwrap_or_default();
+            let text = format!(
+                "#{:<2} {:<22} {:<7} [{}{}]{}",
+                label.index,
+                label.model_name,
+                label.transport_name,
+                label.device_id.unwrap_or(0),
+                version_str,
+                connected_marker,
+            );
+            let style = if i == app.device_picker_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(text).style(style)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .title(" Device Picker — Enter to connect, Esc to cancel ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    f.render_widget(list, popup_area);
 }
 
 /// Render trigger edit modal with depth chart
@@ -4786,17 +5135,23 @@ fn render_device_info(f: &mut Frame, app: &mut App, area: Rect) {
     // Build items with tags
     let mut items: Vec<(InfoTag, ListItem)> = Vec::new();
 
-    // Read-only device info
+    // Device entry (clickable — opens device picker)
+    let device_display = if app.transport_name.is_empty() {
+        app.device_name.clone()
+    } else {
+        format!("{} ({})", app.device_name, app.transport_name)
+    };
     items.push((
-        InfoTag::ReadOnly,
+        InfoTag::Device,
         ListItem::new(Line::from(vec![
             Span::raw("Device:         "),
             Span::styled(
-                app.device_name.clone(),
+                device_display,
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::styled("  [d]", Style::default().fg(Color::DarkGray)),
         ])),
     ));
     items.push((
