@@ -96,15 +96,36 @@ dirty bit 0x20. Discard the command if the value is out of range.
 
 Not directly triggered by a host command, but a robustness issue.
 
-On boot, config_load_all reads the profile byte from the config header in
-flash at 0x08028000. It then loads the keymap for that profile from
-FLASH_KEYMAPS + profile_id * 0x800.
+On boot, config_load_all (0x08012354) reads the profile byte from the
+config header in flash at 0x08028000. profile_id is used unchecked in
+three places:
+
+  a) config_load_all: FLASH_KEYMAPS + profile_id * 0x800
+     Keymap load. Overflows at profile_id > 46 (0x08028800 + 47*0x800
+     = 0x0803F000, near end of flash). profile_id = 0xFF reads from
+     0x080A8000, well past end of 256 KB flash.
+
+  b) mag_calibration_load_or_init (0x0800fa80):
+     0x08032000 + profile_id * 0x1000
+     Calibration load. Overflows at profile_id > 13 (0x08032000 +
+     14*0x1000 = 0x08040000, exactly past flash end). LOWER THRESHOLD
+     than (a). profile_id = 0xFF reads from 0x08131000.
+
+  c) mag_calibration_load_or_init flash write path:
+     flash_erase_sector(0x08032000 + profile_id * 0x1000)
+     Same address computation but WRITES — erases an arbitrary flash
+     sector. profile_id >= 14 erases memory-mapped regions outside flash.
 
 Valid profile values are 0-3 (4 profiles). If the config flash is erased
 or corrupted (e.g. after a failed flash write), the profile byte reads as
-0xFF. The address becomes 0x08028800 + 255 * 0x800 = 0x080A8000, which is
-past the end of the 256 KB flash (0x08040000). This triggers a HardFault
-and bricks the keyboard until the config flash is erased via ISP/DFU.
+0xFF. Any of the above paths triggers a bus fault → HardFault → infinite
+loop, bricking the keyboard until the config flash is erased via ISP/DFU.
+
+Note: on first boot with erased flash, flash_load_switch_config detects
+the missing "U\xAA" validity marker at config offset 0xFE-0xFF and creates
+defaults with profile_id = 0. So a clean erase is safe. The danger is
+partial corruption where the validity marker survives but profile_id is
+garbage.
 
 Impact: Flash corruption during a power loss or failed write can
 permanently brick the keyboard (until recovered with ISP). The keyboard
@@ -112,7 +133,36 @@ enters a HardFault loop on every boot attempt.
 
 Fix: Validate profile_id < 4 after reading from flash. If out of range,
 treat as 0 (default profile) or trigger a factory reset to write known-good
-defaults.
+defaults. The check must happen before mag_calibration_load_or_init is
+called (crash threshold is profile_id >= 14, lower than the keymap path).
+
+
+5. config_load_all LED Effect Mode Overflow
+--------------------------------------------
+
+Not directly triggered by a host command, but a robustness issue.
+
+In config_load_all (0x08012354), after loading the config struct from
+flash, led_effect_mode is used as an unchecked array index:
+
+    brightness_table[config->led_display_config[led_effect_mode + 0x35]]
+    config->led_display_config[led_effect_mode + 0x55]
+    config->led_display_config[led_effect_mode + 0x15]
+
+The config struct is 0xEC bytes. led_display_config is an array within it.
+If led_effect_mode is large (e.g. 0xFF from corrupted flash), the index
+led_effect_mode + 0x55 = 0x154 reads past the config struct into adjacent
+SRAM. The read value is then used as an index into brightness_table,
+compounding the out-of-bounds access.
+
+Impact: Corrupted led_effect_mode causes reads from adjacent SRAM structs.
+The resulting garbage brightness/speed values are applied to the LED
+controller. Unlikely to cause a HardFault (reads stay within SRAM), but
+produces unpredictable LED behavior and could theoretically index past
+brightness_table into unmapped memory.
+
+Fix: Validate led_effect_mode against the number of supported effects
+after reading from flash. Clamp or reset to 0 if out of range.
 
 
 Summary
@@ -123,7 +173,8 @@ Summary
 | 1 | Staging overflow | chunk_index >= 10 | RAM corruption | Bounds-check chunk_index |
 | 2 | Stack overflow | SET_USERPIC slot >= 6 | Code execution | Bounds-check slot_id |
 | 3 | Flash overflow | SET_MACRO id >= 56 | Config corruption | Bounds-check macro_id |
-| 4 | Profile overflow | Erased flash (0xFF) | Brick (HardFault) | Validate on boot |
+| 4 | Profile overflow | Erased/corrupt flash | Brick (HardFault) | Validate on boot |
+| 5 | LED mode overflow | Corrupt flash | Bad SRAM reads | Validate on boot |
 
 
 =========================================================================
@@ -220,21 +271,68 @@ Flash 数据（灯效图案、磁轴校准、开关阈值等）。macro_id 在 1
 
 该问题不由主机命令直接触发，属于健壮性问题。
 
-开机时，config_load_all 从 0x08028000 处的配置头 Flash 中读取
-profile 字节，然后从 FLASH_KEYMAPS + profile_id * 0x800 加载
-对应配置的键位映射。
+开机时，config_load_all (0x08012354) 从 0x08028000 处的配置头 Flash
+中读取 profile 字节。profile_id 在三处未经校验即被使用：
 
-有效的 profile 值为 0-3（共 4 个配置）。如果配置 Flash 被擦除或
-损坏（例如写入过程中断电），profile 字节读取为 0xFF。地址变为
-0x08028800 + 255 * 0x800 = 0x080A8000，超出 256 KB Flash 的末尾
-（0x08040000），触发 HardFault，键盘变砖，直到通过 ISP/DFU 擦除
-配置 Flash 才能恢复。
+  a) config_load_all: FLASH_KEYMAPS + profile_id * 0x800
+     键位映射加载。profile_id > 46 时溢出（0x08028800 + 47*0x800
+     = 0x0803F000，接近 Flash 末尾）。profile_id = 0xFF 读取
+     0x080A8000，远超 256 KB Flash 末尾。
 
-影响：掉电或写入失败导致的 Flash 损坏可使键盘永久变砖（需 ISP
-恢复）。键盘每次上电均进入 HardFault 循环。
+  b) mag_calibration_load_or_init (0x0800fa80):
+     0x08032000 + profile_id * 0x1000
+     校准数据加载。profile_id > 13 时溢出（0x08032000 + 14*0x1000
+     = 0x08040000，恰好超出 Flash 末尾）。阈值比 (a) 更低。
+     profile_id = 0xFF 读取 0x08131000。
+
+  c) mag_calibration_load_or_init Flash 写入路径：
+     flash_erase_sector(0x08032000 + profile_id * 0x1000)
+     与上述相同的地址计算，但执行的是写操作 — 擦除任意 Flash 扇区。
+     profile_id >= 14 擦除 Flash 范围之外的存储映射区域。
+
+有效的 profile 值为 0-3（共 4 个配置）。如果配置 Flash 被擦除或损坏
+（例如写入过程中断电），profile 字节读取为 0xFF。上述任一路径均触发
+总线错误 → HardFault → 死循环，键盘变砖，直到通过 ISP/DFU 擦除配置
+Flash 才能恢复。
+
+注：首次以全擦除 Flash 启动时，flash_load_switch_config 检测到配置偏移
+0xFE-0xFF 处缺少"U\xAA"有效性标记，会创建 profile_id = 0 的默认值。
+因此干净擦除是安全的。危险场景是部分损坏：有效性标记完好但 profile_id
+为垃圾值。
+
+影响：掉电或写入失败导致的 Flash 损坏可使键盘永久变砖（需 ISP 恢复）。
+键盘每次上电均进入 HardFault 循环。
 
 修复方案：从 Flash 读取 profile_id 后验证其 < 4。若超出范围，视为 0
-（默认配置），或触发恢复出厂设置以写入已知正确的默认值。
+（默认配置），或触发恢复出厂设置以写入已知正确的默认值。校验必须在
+mag_calibration_load_or_init 调用之前执行（该路径的崩溃阈值为
+profile_id >= 14，低于键位映射路径）。
+
+
+5. config_load_all LED 灯效模式溢出
+------------------------------------
+
+该问题不由主机命令直接触发，属于健壮性问题。
+
+在 config_load_all (0x08012354) 中，从 Flash 加载配置结构体后，
+led_effect_mode 被用作未校验的数组索引：
+
+    brightness_table[config->led_display_config[led_effect_mode + 0x35]]
+    config->led_display_config[led_effect_mode + 0x55]
+    config->led_display_config[led_effect_mode + 0x15]
+
+配置结构体大小为 0xEC 字节。led_display_config 是其中的数组。
+若 led_effect_mode 较大（例如损坏的 Flash 中为 0xFF），索引
+led_effect_mode + 0x55 = 0x154 将读取超出配置结构体的相邻 SRAM。
+读到的值又被用作 brightness_table 的索引，产生二次越界访问。
+
+影响：损坏的 led_effect_mode 导致从相邻 SRAM 结构体读取。产生的
+垃圾亮度/速度值被应用于 LED 控制器。不太可能触发 HardFault（读取
+停留在 SRAM 范围内），但会产生不可预测的灯效行为，理论上可能索引到
+brightness_table 之外的未映射内存。
+
+修复方案：从 Flash 读取后，验证 led_effect_mode 不超过支持的灯效
+数量。超出范围时钳位或重置为 0。
 
 
 总结
@@ -245,4 +343,5 @@ profile 字节，然后从 FLASH_KEYMAPS + profile_id * 0x800 加载
 | 1 | 暂存区溢出 | chunk_index >= 10 | RAM 损坏 | 校验 chunk_index |
 | 2 | 栈溢出 | SET_USERPIC slot >= 6 | 代码执行 | 校验 slot_id |
 | 3 | Flash 溢出 | SET_MACRO id >= 56 | 配置数据损坏 | 校验 macro_id |
-| 4 | Profile 溢出 | Flash 擦除态 (0xFF) | 变砖 (HardFault) | 启动时验证 |
+| 4 | Profile 溢出 | Flash 擦除/损坏态 | 变砖 (HardFault) | 启动时验证 |
+| 5 | LED 模式溢出 | Flash 损坏态 | SRAM 越界读取 | 启动时验证 |
