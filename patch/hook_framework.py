@@ -177,6 +177,29 @@ def encode_thumb2_bw(from_addr: int, to_addr: int) -> bytes:
     return struct.pack('<HH', hw1, hw2)
 
 
+def encode_thumb2_bl(from_addr: int, to_addr: int) -> bytes:
+    """Encode a Thumb-2 BL (branch with link, 4 bytes)."""
+    offset = to_addr - (from_addr + 4)
+
+    if offset < -(1 << 24) or offset >= (1 << 24):
+        raise ValueError(f"BL offset {offset:#x} out of range (±16MB)")
+    if offset & 1:
+        raise ValueError(f"BL target must be halfword-aligned (offset={offset:#x})")
+
+    S = (offset >> 24) & 1
+    imm10 = (offset >> 12) & 0x3FF
+    imm11 = (offset >> 1) & 0x7FF
+    I1 = (offset >> 23) & 1
+    I2 = (offset >> 22) & 1
+    J1 = (~(I1 ^ S)) & 1
+    J2 = (~(I2 ^ S)) & 1
+
+    hw1 = (0b11110 << 11) | (S << 10) | imm10
+    hw2 = (0b11 << 14) | (J1 << 13) | (1 << 12) | (J2 << 11) | imm11
+
+    return struct.pack('<HH', hw1, hw2)
+
+
 # ── Inline assembly helpers ──────────────────────────────────────────────────
 
 def bytes_to_asm_words(data: bytes, comment: str = "") -> str:
@@ -509,6 +532,10 @@ class BinaryPatch(NamedTuple):
     For branch patches: set branch_symbol to an ELF symbol name.
     Encodes a B.W from addr to the symbol's address (4 bytes).
     old_bytes is verified before patching; new_bytes is ignored.
+
+    For BL patches: set bl_symbol to an ELF symbol name.
+    Encodes a BL (branch with link) from addr to the symbol's address (4 bytes).
+    old_bytes is verified before patching; new_bytes is ignored.
     """
     addr: int
     old_bytes: bytes
@@ -516,6 +543,7 @@ class BinaryPatch(NamedTuple):
     desc: str
     symbol: str | None = None
     branch_symbol: str | None = None
+    bl_symbol: str | None = None
 
 
 class MemoryRegion(NamedTuple):
@@ -926,7 +954,25 @@ class PatchProject:
         for patch in self.binary_patches:
             off = patch.addr - file_base
 
-            if patch.branch_symbol is not None:
+            if patch.bl_symbol is not None:
+                # BL (branch with link) to ELF symbol
+                resolved = symbols.get(patch.bl_symbol)
+                if resolved is None:
+                    print(f"ERROR: '{patch.bl_symbol}' symbol not found in hook.elf. "
+                          f"Make sure it is non-static in handlers.S/handlers.c.",
+                          file=sys.stderr)
+                    sys.exit(1)
+                current = fw[off:off + len(patch.old_bytes)]
+                if current != patch.old_bytes:
+                    print(f"WARNING: bytes at 0x{patch.addr:08X} are "
+                          f"{current.hex()}, expected {patch.old_bytes.hex()}. "
+                          f"Already patched?", file=sys.stderr)
+                bl = encode_thumb2_bl(patch.addr, resolved)
+                fw[off:off + 4] = bl
+                print(f"  Patch: 0x{patch.addr:08X} "
+                      f"[BL → 0x{resolved:08X}] ({bl.hex()}) {patch.desc}")
+
+            elif patch.branch_symbol is not None:
                 # B.W branch to ELF symbol
                 resolved = symbols.get(patch.branch_symbol)
                 if resolved is None:
