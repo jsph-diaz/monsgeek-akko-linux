@@ -363,8 +363,9 @@ impl ResolvedEffect {
             return kf_a.color;
         }
 
-        let local_t = ((t - kf_a.t_ms) / seg_duration).clamp(0.0, 1.0) as f32;
-        Rgb::lerp(kf_a.color, kf_b.color, local_t)
+        let local_t = ((t - kf_a.t_ms) / seg_duration).clamp(0.0, 1.0);
+        let eased_t = apply_easing(&self.easing_names[i], local_t) as f32;
+        Rgb::lerp(kf_a.color, kf_b.color, eased_t)
     }
 
     /// Find the keyframe segment indices (i, j) that surround time t.
