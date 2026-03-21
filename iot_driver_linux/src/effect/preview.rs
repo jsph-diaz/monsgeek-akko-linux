@@ -15,7 +15,7 @@ use crossterm::{
 
 use super::{resolve, EffectDef, ResolvedEffect};
 use crate::led_stream::{apply_power_budget, send_full_frame, DEFAULT_POWER_BUDGET_MA};
-use crate::notify::keymap::{COLS, MATRIX_LEN, ROWS};
+use crate::notify::keymap::{pos_to_matrix_index, COLS, MATRIX_LEN, ROWS};
 use crate::profile::M1_V5_HE_KEY_NAMES;
 
 /// Width of each cell in characters.
@@ -171,7 +171,7 @@ pub fn build_labels() -> Vec<String> {
         }
         let col = col_major_idx / ROWS;
         let row = col_major_idx % ROWS;
-        let matrix_idx = row * COLS + col;
+        let matrix_idx = pos_to_matrix_index(row as u8, col as u8);
         if matrix_idx < MATRIX_LEN {
             // Truncate to 3 chars for display
             let label: String = name.chars().take(3).collect();

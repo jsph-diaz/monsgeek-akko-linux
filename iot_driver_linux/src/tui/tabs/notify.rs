@@ -78,7 +78,7 @@ impl Default for NotifyTabState {
             var_values: std::collections::BTreeMap::new(),
             resolved: None,
             preview_start: Instant::now(),
-            preview_on_hardware: false,
+            preview_on_hardware: true,
             prev_hw_frame: [(0, 0, 0); 96],
             notifications: Vec::new(),
             last_notif_poll: Instant::now(),
