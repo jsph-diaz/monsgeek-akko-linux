@@ -299,6 +299,8 @@ pub(crate) enum AsyncResult {
     NotifyDaemonStopped(Result<(), String>),
     #[cfg(feature = "notify")]
     NotifyList(Vec<(u64, String, String, String, i32)>),
+    // Animation engine status
+    AnimStatus(Result<crate::anim::EngineSnapshot, String>),
 }
 
 /// An async result tagged with the device generation it was produced for.

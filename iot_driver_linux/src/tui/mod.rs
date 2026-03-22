@@ -153,6 +153,11 @@ struct App {
     // Notify tab state (feature-gated)
     #[cfg(feature = "notify")]
     notify: NotifyTabState,
+    // Animation engine status (periodic query + interpolation)
+    anim_snapshot: Option<crate::anim::EngineSnapshot>,
+    anim_snapshot_time: Instant, // when the last snapshot was received
+    anim_poll_interval: Duration,
+    last_anim_poll: Instant,
 }
 
 impl App {
@@ -238,6 +243,11 @@ impl App {
             info_tags: Vec::new(),
             #[cfg(feature = "notify")]
             notify: NotifyTabState::default(),
+            // Animation engine
+            anim_snapshot: None,
+            anim_snapshot_time: Instant::now(),
+            anim_poll_interval: Duration::from_secs(1),
+            last_anim_poll: Instant::now() - Duration::from_secs(10), // trigger immediate first poll
         };
         (app, result_rx)
     }
@@ -621,6 +631,7 @@ impl App {
                 self.patch_info = None;
                 self.dongle_patch_info = None;
                 self.firmware_check = None;
+                self.anim_snapshot = None;
 
                 self.status_msg = format!("Connected to {}", self.device_name);
                 self.load_device_info();
@@ -985,6 +996,14 @@ impl App {
             AsyncResult::NotifyList(list) => {
                 self.notify.notifications = list;
             }
+            AsyncResult::AnimStatus(Ok(snap)) => {
+                self.anim_snapshot = Some(snap);
+                self.anim_snapshot_time = Instant::now();
+            }
+            AsyncResult::AnimStatus(Err(_)) => {
+                // Firmware doesn't support it — stop polling
+                self.anim_snapshot = None;
+            }
         }
     }
 
@@ -1069,6 +1088,7 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
     // Set up async event stream
     let mut event_stream = EventStream::new();
     let mut tick_interval = tokio::time::interval(Duration::from_millis(100));
+    let mut last_tab = 0usize;
 
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
@@ -1849,6 +1869,15 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
 
             // Handle tick updates
             _ = tick_interval.tick() => {
+                // Adjust tick rate: 30fps on notify tab, 10fps otherwise
+                #[cfg(feature = "notify")]
+                if app.tab != last_tab {
+                    last_tab = app.tab;
+                    let ms = if app.tab == 4 { 16 } else { 100 };
+                    tick_interval = tokio::time::interval(Duration::from_millis(ms));
+                    tick_interval.reset();
+                }
+
                 // Advance spinner animation
                 app.throbber_state.calc_next();
 
@@ -1858,6 +1887,9 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                 // Notify tab tick (preview animation + D-Bus poll)
                 #[cfg(feature = "notify")]
                 app.notify_tick();
+
+                // Poll animation engine status (on notify tab, or when overlay active)
+                app.poll_anim_status();
 
                 // Refresh battery every 30 seconds for wireless devices
                 if app.is_wireless && app.last_battery_check.elapsed() >= Duration::from_secs(30) {

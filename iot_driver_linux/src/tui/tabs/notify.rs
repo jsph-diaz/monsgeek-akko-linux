@@ -12,7 +12,6 @@ use crate::effect::{
     required_variables, resolve as resolve_effect, EffectDef, EffectLibrary, KeyframeDef, NumOrVar,
     ResolvedEffect,
 };
-use crate::led_stream::{apply_power_budget, send_overlay_diff};
 
 use super::super::shared::AsyncResult;
 use super::super::App;
@@ -47,7 +46,6 @@ pub(in crate::tui) struct NotifyTabState {
     pub resolved: Option<ResolvedEffect>,
     pub preview_start: Instant,
     pub preview_on_hardware: bool,
-    pub prev_hw_frame: [(u8, u8, u8); 96],
 
     // D-Bus notification list
     pub notifications: Vec<(u64, String, String, String, i32)>,
@@ -55,6 +53,12 @@ pub(in crate::tui) struct NotifyTabState {
 
     // Labels for preview grid
     pub labels: Vec<String>,
+
+    /// LED power budget in mA (0 = unlimited, step 100)
+    pub power_budget: u32,
+
+    /// Shared slot info: daemon writes effect name + resolved, TUI reads for display/sparklines.
+    pub slot_info: crate::anim::SharedSlotInfo,
 
     pub dirty: bool,
 }
@@ -78,11 +82,12 @@ impl Default for NotifyTabState {
             var_values: std::collections::BTreeMap::new(),
             resolved: None,
             preview_start: Instant::now(),
-            preview_on_hardware: true,
-            prev_hw_frame: [(0, 0, 0); 96],
+            preview_on_hardware: false,
             notifications: Vec::new(),
             last_notif_poll: Instant::now(),
             labels: crate::effect::preview::build_labels(),
+            power_budget: 400,
+            slot_info: Arc::new(std::sync::Mutex::new(crate::anim::SlotInfo::default())),
             dirty: false,
         }
     }
@@ -167,14 +172,12 @@ pub(in crate::tui) fn handle_notify_input(app: &mut App, key: KeyCode) {
                 if ns.selected_effect > 0 {
                     ns.selected_effect -= 1;
                     ns.selected_keyframe = 0;
-                    app.notify_recompute_preview();
                 }
             }
             Down | Char('j') => {
                 if ns.selected_effect + 1 < ns.effect_names.len() {
                     ns.selected_effect += 1;
                     ns.selected_keyframe = 0;
-                    app.notify_recompute_preview();
                 }
             }
             Enter => {
@@ -182,31 +185,27 @@ pub(in crate::tui) fn handle_notify_input(app: &mut App, key: KeyCode) {
                 ns.selected_keyframe = 0;
                 ns.selected_field = 0;
             }
-            Char('n') => {
-                app.notify_toggle_daemon();
-            }
             Char('p') => {
+                // Play/stop on-device preview via animation engine (slot 7)
                 let ns = &mut app.notify;
-                if ns.daemon_running {
-                    app.status_msg =
-                        "Hardware preview disabled while daemon is running".to_string();
-                } else {
-                    ns.preview_on_hardware = !ns.preview_on_hardware;
-                    if !ns.preview_on_hardware {
-                        // Clear overlay
-                        if let Some(ref kb) = app.keyboard {
-                            let _ = kb.stream_led_release();
-                        }
-                        ns.prev_hw_frame = [(0, 0, 0); 96];
+                if ns.preview_on_hardware {
+                    // Stop preview — cancel def 7
+                    ns.preview_on_hardware = false;
+                    if let Some(ref kb) = app.keyboard {
+                        let _ = kb.anim_cancel(7);
                     }
-                    app.status_msg = if ns.preview_on_hardware {
-                        "Hardware preview ON".to_string()
-                    } else {
-                        "Hardware preview OFF".to_string()
-                    };
+                    app.notify.slot_info.lock().unwrap().clear(7);
+                    app.status_msg = "Preview stopped".to_string();
+                } else {
+                    // Start preview: compile + program to QWERTY row
+                    app.notify_recompute_preview();
+                    app.notify_program_preview();
                 }
             }
             Char('s') => {
+                app.notify_toggle_daemon();
+            }
+            Char('w') => {
                 if let Some(ref lib) = app.notify.effects {
                     match lib.save_default() {
                         Ok(()) => {
@@ -216,6 +215,24 @@ pub(in crate::tui) fn handle_notify_input(app: &mut App, key: KeyCode) {
                         Err(e) => app.status_msg = format!("Save failed: {e}"),
                     }
                 }
+            }
+            Right | Char('>') | Char('.') => {
+                let ns = &mut app.notify;
+                ns.power_budget = ns.power_budget.saturating_add(100);
+                app.status_msg = if ns.power_budget == 0 {
+                    "Power budget: unlimited".to_string()
+                } else {
+                    format!("Power budget: {}mA", ns.power_budget)
+                };
+            }
+            Left | Char('<') | Char(',') => {
+                let ns = &mut app.notify;
+                ns.power_budget = ns.power_budget.saturating_sub(100);
+                app.status_msg = if ns.power_budget == 0 {
+                    "Power budget: unlimited".to_string()
+                } else {
+                    format!("Power budget: {}mA", ns.power_budget)
+                };
             }
             _ => {}
         },
@@ -513,8 +530,11 @@ impl App {
             let cancel = Arc::clone(&running);
             let tx = self.gen_sender();
 
+            let power_budget = self.notify.power_budget;
+            let labels = Arc::clone(&self.notify.slot_info);
             let handle = tokio::spawn(async move {
-                let result = crate::notify::daemon::run_with_cancel(kb, 30, 400, running).await;
+                let result =
+                    crate::notify::daemon::run_with_cancel(kb, power_budget, running, labels).await;
                 tx.send(AsyncResult::NotifyDaemonStopped(
                     result.map_err(|e| e.to_string()),
                 ));
@@ -565,26 +585,112 @@ impl App {
         });
     }
 
+    /// Poll animation engine status periodically.
+    /// Polls every 500ms on the notify tab, or every 2s on other tabs if overlay is active.
+    pub(in crate::tui) fn poll_anim_status(&mut self) {
+        let has_patch = self
+            .patch_info
+            .as_ref()
+            .is_some_and(|p| p.capabilities.contains(&"anim_engine"));
+        if !has_patch {
+            return;
+        }
+        let interval = if self.tab == 4 {
+            self.anim_poll_interval // 500ms on notify tab
+        } else if self
+            .anim_snapshot
+            .as_ref()
+            .is_some_and(|s| s.overlay_active())
+        {
+            Duration::from_secs(2) // 2s if overlay active on other tabs
+        } else {
+            return; // don't poll if not on notify tab and no overlay
+        };
+        if self.last_anim_poll.elapsed() < interval {
+            return;
+        }
+        self.last_anim_poll = Instant::now();
+
+        let Some(keyboard) = self.keyboard.clone() else {
+            return;
+        };
+        let tx = self.gen_sender();
+        tokio::spawn(async move {
+            let engine = crate::anim::AnimEngine::new(keyboard);
+            let result = engine.query_full();
+            tx.send(AsyncResult::AnimStatus(result));
+        });
+    }
+
     pub(in crate::tui) fn notify_tick(&mut self) {
         if self.tab != 4 {
             return;
         }
         // Poll D-Bus for active notifications
         self.notify_poll_list();
+    }
 
-        // Hardware preview
-        if self.notify.preview_on_hardware && !self.notify.daemon_running {
-            if let (Some(ref resolved), Some(ref kb)) = (&self.notify.resolved, &self.keyboard) {
-                let elapsed_ms = self.notify.preview_start.elapsed().as_secs_f64() * 1000.0;
-                let rgb = resolved.evaluate(elapsed_ms);
-                let mut frame = [(rgb.r, rgb.g, rgb.b); 96];
-                apply_power_budget(&mut frame, 400);
-                if frame != self.notify.prev_hw_frame {
-                    let _ = send_overlay_diff(kb, &self.notify.prev_hw_frame, &frame);
-                    self.notify.prev_hw_frame = frame;
-                }
+    /// Program the current preview effect to the animation engine (slot 7, QWERTY row).
+    pub(in crate::tui) fn notify_program_preview(&mut self) {
+        let Some(ref resolved) = self.notify.resolved else {
+            self.status_msg = "No effect resolved".to_string();
+            return;
+        };
+        let Some(ref kb) = self.keyboard else {
+            self.status_msg = "No device connected".to_string();
+            return;
+        };
+
+        let compiled = match resolved.compile_for_firmware(127, false) {
+            Some(c) => c,
+            None => {
+                self.status_msg = "Effect has no keyframes".to_string();
+                return;
             }
+        };
+
+        // Cancel previous preview
+        let _ = kb.anim_cancel(7);
+
+        // Program slot 7 with max priority so it wins over daemon animations
+        if let Err(e) = kb.anim_define(
+            7,
+            compiled.flags,
+            compiled.priority,
+            compiled.duration_ticks,
+            &compiled.keyframes,
+        ) {
+            self.status_msg = format!("Preview failed: {e}");
+            return;
         }
+
+        // Assign QWERTY row (matrix indices 33-44), no phase offset
+        let keys: Vec<(u8, u8)> = (33..=44).map(|idx| (idx, 0)).collect();
+        if let Err(e) = kb.anim_assign(7, &keys) {
+            self.status_msg = format!("Preview assign failed: {e}");
+            return;
+        }
+
+        // Cache slot info for TUI display + sparkline
+        let effect_name = self
+            .notify
+            .effect_names
+            .get(self.notify.selected_effect)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(ref resolved) = self.notify.resolved {
+            self.notify.slot_info.lock().unwrap().set(
+                7,
+                crate::anim::SlotEntry {
+                    effect_name,
+                    resolved: resolved.clone(),
+                    compiled,
+                },
+            );
+        }
+
+        self.notify.preview_on_hardware = true;
+        self.status_msg = "Preview playing on QWERTY row (on-device)".to_string();
     }
 }
 
@@ -632,13 +738,22 @@ fn render_notify_left(f: &mut Frame, app: &App, area: Rect) {
     } else {
         Span::raw("")
     };
+    let power_str = if ns.power_budget == 0 {
+        "unlimited".to_string()
+    } else {
+        format!("{}mA", ns.power_budget)
+    };
     let daemon_line = Line::from(vec![
         Span::raw("Daemon: "),
         daemon_status,
         hw_preview,
+        Span::styled(
+            format!("  pwr:{power_str}"),
+            Style::default().fg(Color::DarkGray),
+        ),
         dirty,
         Span::styled(
-            "  [n]toggle [p]hw [s]save",
+            "  [p]play [s]service [w]save [<>]pwr",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -817,72 +932,186 @@ fn render_keyframe_editor(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_notify_right(f: &mut Frame, app: &App, area: Rect) {
-    let ns = &app.notify;
-
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(8), // Preview grid
             Constraint::Length(4), // Sparkline
-            Constraint::Min(5),    // Notification list
+            Constraint::Min(4),    // Animation engine + keys (merged)
         ])
         .split(area);
 
-    // ── Preview grid (6 rows × 16 cols) ──
     render_preview_grid(f, app, chunks[0]);
-
-    // ── Brightness sparkline ──
     render_brightness_sparkline(f, app, chunks[1]);
+    render_anim_status(f, app, chunks[2]);
+}
 
-    // ── Active notifications ──
-    let notif_items: Vec<ListItem> = if ns.notifications.is_empty() {
-        vec![ListItem::new(Span::styled(
-            if ns.daemon_running {
-                "No active notifications"
-            } else {
-                "Daemon not running"
-            },
-            Style::default().fg(Color::DarkGray),
-        ))]
-    } else {
-        ns.notifications
-            .iter()
-            .map(|(id, key, source, effect, prio)| {
-                // Resolve "0,1,16" indices to key names like "Esc,F1,~"
-                let key_short: String = {
-                    let names: Vec<&str> = key
-                        .split(',')
-                        .filter_map(|s| s.trim().parse::<usize>().ok())
-                        .filter_map(|idx| {
-                            ns.labels
-                                .get(idx)
-                                .map(|l| l.trim())
-                                .filter(|l| !l.is_empty())
-                        })
-                        .collect();
-                    let joined = names.join(",");
-                    if joined.len() > 14 {
-                        format!("{}…", &joined[..joined.floor_char_boundary(13)])
-                    } else {
-                        joined
-                    }
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!("{id:3} "), Style::default().fg(Color::DarkGray)),
-                    Span::styled(format!("{key_short:14} "), Style::default().fg(Color::Cyan)),
-                    Span::styled(format!("{effect:10} "), Style::default().fg(Color::Yellow)),
-                    Span::styled(format!("p={prio}"), Style::default().fg(Color::DarkGray)),
-                    Span::styled(format!(" ({source})"), Style::default().fg(Color::DarkGray)),
-                ]))
-            })
-            .collect()
+fn render_anim_status(f: &mut Frame, app: &App, area: Rect) {
+    let snap = app.anim_snapshot.as_ref();
+
+    // Render block border
+    let title = snap
+        .map(|s| format!("Engine ({})", s.active_count()))
+        .unwrap_or_else(|| "Engine".to_string());
+    let block = Block::default().borders(Borders::ALL).title(title);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.height == 0 || inner.width < 4 {
+        return;
+    }
+
+    let Some(snap) = snap else {
+        let msg = if app.notify.daemon_running {
+            "Daemon running (no anim engine)"
+        } else {
+            "No animation engine"
+        };
+        f.render_widget(
+            Paragraph::new(msg).style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
+        return;
     };
-    let notif_list = List::new(notif_items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Active Notifications"),
-    );
-    f.render_widget(notif_list, chunks[2]);
+
+    // Interpolate frame_count for smooth sparkline scrolling
+    let elapsed_since_poll = app.anim_snapshot_time.elapsed().as_secs_f64();
+    let interp_frames = snap.frame_count() as f64 + elapsed_since_poll * crate::anim::TICK_RATE_HZ;
+
+    // Lay out content line by line within `inner`
+    let mut y = inner.y;
+    let max_y = inner.y + inner.height;
+
+    let active_defs: Vec<_> = snap.defs().iter().filter(|d| d.key_count > 0).collect();
+    if active_defs.is_empty() && y < max_y {
+        f.render_widget(
+            Paragraph::new("(idle)").style(Style::default().fg(Color::DarkGray)),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+        return;
+    }
+
+    for d in &active_defs {
+        if y >= max_y {
+            break;
+        }
+
+        let mode = match (d.is_one_shot(), d.is_rainbow()) {
+            (true, true) => "1s+rbw",
+            (true, false) => "1shot",
+            (false, true) => "rainbow",
+            (false, false) => "loop",
+        };
+
+        // Get cached slot info (effect name + resolved effect)
+        let slot_entry = app
+            .notify
+            .slot_info
+            .lock()
+            .ok()
+            .and_then(|si| si.get(d.id).cloned());
+
+        let mut spans = vec![Span::styled(
+            format!("def[{}]", d.id),
+            Style::default().fg(Color::Yellow),
+        )];
+        if let Some(ref entry) = slot_entry {
+            spans.push(Span::styled(
+                format!(" {}", entry.effect_name),
+                Style::default().fg(Color::Green),
+            ));
+        }
+        spans.extend([
+            Span::styled(format!(" {}KF ", d.num_kf), Style::default()),
+            Span::styled(
+                format!("p={} ", d.priority),
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(mode, Style::default().fg(Color::Magenta)),
+        ]);
+        f.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+        y += 1;
+
+        // Brightness envelope sparkline (2 rows high)
+        // Uses the cached resolved effect from the slot info.
+        let keys_for_spark = snap.keys.get(&d.id);
+        if y + 1 < max_y && d.duration_ticks > 0 {
+            let bar_w = inner.width as usize;
+            let dur_ticks = d.duration_ticks as f64;
+            let resolved = slot_entry.as_ref().map(|e| &e.resolved);
+
+            let mut spark = vec![0u64; bar_w];
+            if let Some(resolved) = resolved {
+                if let Some(keys) = keys_for_spark {
+                    // For each column (= wall-clock time offset from now),
+                    // compute max brightness across all keys at that moment.
+                    let now_ticks = interp_frames % dur_ticks;
+                    for (col, cell) in spark.iter_mut().enumerate() {
+                        let wall_ticks = now_ticks + (col as f64 / bar_w as f64) * dur_ticks;
+                        let mut max_lum: u64 = 0;
+                        for k in keys {
+                            let key_t_ms = (wall_ticks + (k.phase_offset as f64) * 8.0) % dur_ticks
+                                * crate::anim::MS_PER_TICK;
+                            let rgb = resolved.evaluate(key_t_ms);
+                            let lum = (rgb.r as u64 + rgb.g as u64 + rgb.b as u64) / 3;
+                            max_lum = max_lum.max(lum);
+                        }
+                        *cell = max_lum * 8 / 255;
+                    }
+                }
+            }
+
+            let sparkline = Sparkline::default()
+                .data(&spark)
+                .style(Style::default().fg(Color::Cyan));
+            f.render_widget(sparkline, Rect::new(inner.x, y, inner.width, 2));
+            y += 2;
+        }
+
+        if let Some(keys) = snap.keys.get(&d.id) {
+            // Key list per phase group
+            let labels = &app.notify.labels;
+            let mut groups: std::collections::BTreeMap<u8, Vec<u8>> =
+                std::collections::BTreeMap::new();
+            for k in keys {
+                groups.entry(k.phase_offset).or_default().push(k.strip_idx);
+            }
+            for (&phase, strip_indices) in &groups {
+                if y >= max_y {
+                    break;
+                }
+                let keys_str: String = strip_indices
+                    .iter()
+                    .map(|&s| {
+                        let l = crate::notify::keymap::strip_to_label(s, labels).trim();
+                        if l.is_empty() {
+                            format!("#{s}")
+                        } else {
+                            l.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let phase_ms = phase as u32 * 8 * crate::anim::MS_PER_TICK as u32;
+                let phase_label = if phase == 0 {
+                    "+0 ".to_string()
+                } else {
+                    format!("+{phase_ms}ms ")
+                };
+                f.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(phase_label, Style::default().fg(Color::DarkGray)),
+                        Span::styled(keys_str, Style::default().fg(Color::Cyan)),
+                    ])),
+                    Rect::new(inner.x, y, inner.width, 1),
+                );
+                y += 1;
+            }
+        }
+    }
 }
 
 fn render_preview_grid(f: &mut Frame, app: &App, area: Rect) {
@@ -913,6 +1142,11 @@ fn render_preview_grid(f: &mut Frame, app: &App, area: Rect) {
         (40, 40, 40)
     };
 
+    // QWERTY preview row: matrix indices 33-44 (row 2)
+    const PREVIEW_ROW: usize = 2;
+    const PREVIEW_START: usize = PREVIEW_ROW * COLS;
+    const PREVIEW_END: usize = PREVIEW_START + 12; // Q through ]
+
     for row in 0..ROWS {
         for col in 0..COLS {
             let idx = row * COLS + col;
@@ -924,9 +1158,10 @@ fn render_preview_grid(f: &mut Frame, app: &App, area: Rect) {
                 continue;
             }
 
+            let in_preview = (PREVIEW_START..PREVIEW_END).contains(&idx);
             let (fg, bg) = if label.trim().is_empty() {
                 (Color::DarkGray, Color::Rgb(20, 20, 20))
-            } else if ns.resolved.is_some() {
+            } else if in_preview && ns.resolved.is_some() {
                 let lum = (r as u16 + g as u16 + b as u16) / 3;
                 let fg = if lum > 128 {
                     Color::Black
