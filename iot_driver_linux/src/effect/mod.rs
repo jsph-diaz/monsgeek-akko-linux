@@ -707,10 +707,10 @@ keyframes = [
 
 [pulse]
 color = "$color:white"
-description = "Quick flash then slow fade"
+description = "Instant flash with exponential decay"
 keyframes = [
-    { d = 80,  v = 0.0, easing = "EaseOutQuad" },
-    { d = 720, v = 1.0, easing = "EaseInQuint" },
+    { t = 0,            v = 1.0, easing = "EaseOutExpo" },
+    { t = "$decay:800", v = 0.0 },
 ]
 
 [solid]
@@ -748,8 +748,8 @@ ttl_ms = 3000
 color = "$color:red"
 description = "Keypress flash with exponential falloff"
 keyframes = [
-    { d = 0,   v = 1.0, easing = "EaseOutExpo" },
-    { d = "$decay:800", v = 0.0 },
+    { t = 0,            v = 1.0, easing = "EaseOutExpo" },
+    { t = "$decay:800", v = 0.0 },
 ]
 ttl_ms = 800
 priority = 5
