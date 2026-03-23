@@ -2139,6 +2139,247 @@ fn parse_led_params_command(data: &[u8]) -> Option<LedParamsResponse> {
 }
 
 // =============================================================================
+// =============================================================================
+// Animation engine commands (0xEA)
+// =============================================================================
+
+/// Define an animation (0xEA sub 0x08-0x0F).
+/// Keyframes are (t_ticks_le16, color_rgb565_le16, easing_u8) — 5 bytes each.
+#[derive(Debug, Clone)]
+pub struct AnimDefine {
+    pub def_id: u8,
+    pub num_kf: u8,
+    pub flags: u8,
+    pub priority: i8,
+    pub duration_ticks: u16,
+    /// Up to 8 keyframes: (t_ticks, color_rgb565, easing).
+    pub keyframes: Vec<(u16, u16, u8)>,
+}
+
+impl HidCommand for AnimDefine {
+    const CMD: u8 = cmd::ANIM_CMD;
+    const CHECKSUM: ChecksumType = ChecksumType::None;
+
+    fn to_data(&self) -> Vec<u8> {
+        let mut data = vec![0u8; 26];
+        data[0] = 0x08 | (self.def_id & 0x07);
+        data[1] = self.num_kf;
+        data[2] = self.flags;
+        data[3] = self.priority as u8;
+        data[4..6].copy_from_slice(&self.duration_ticks.to_le_bytes());
+
+        for (i, &(t, c565, easing)) in self.keyframes.iter().enumerate().take(4) {
+            let off = 6 + i * 5;
+            data[off..off + 2].copy_from_slice(&t.to_le_bytes());
+            data[off + 2..off + 4].copy_from_slice(&c565.to_le_bytes());
+            data[off + 4] = easing;
+        }
+        data
+    }
+}
+
+/// Continuation keyframes 4-7 (0xEA sub 0x10-0x17).
+#[derive(Debug, Clone)]
+pub struct AnimDefineExt {
+    pub def_id: u8,
+    pub keyframes: Vec<(u16, u16, u8)>, // KFs 4-7
+}
+
+impl HidCommand for AnimDefineExt {
+    const CMD: u8 = cmd::ANIM_CMD;
+    const CHECKSUM: ChecksumType = ChecksumType::None;
+
+    fn to_data(&self) -> Vec<u8> {
+        let mut data = vec![0u8; 21];
+        data[0] = 0x10 | (self.def_id & 0x07);
+        for (i, &(t, c565, easing)) in self.keyframes.iter().enumerate().take(4) {
+            let off = 1 + i * 5;
+            data[off..off + 2].copy_from_slice(&t.to_le_bytes());
+            data[off + 2..off + 4].copy_from_slice(&c565.to_le_bytes());
+            data[off + 4] = easing;
+        }
+        data
+    }
+}
+
+/// Assign keys to an animation definition (0xEA sub 0x00-0x07).
+#[derive(Debug, Clone)]
+pub struct AnimAssign {
+    pub def_id: u8,
+    /// (matrix_idx, phase_offset) pairs, max 29.
+    pub keys: Vec<(u8, u8)>,
+}
+
+impl HidCommand for AnimAssign {
+    const CMD: u8 = cmd::ANIM_CMD;
+    const CHECKSUM: ChecksumType = ChecksumType::None;
+
+    fn to_data(&self) -> Vec<u8> {
+        let count = self.keys.len().min(29);
+        let mut data = vec![0u8; 2 + count * 2];
+        data[0] = self.def_id & 0x07;
+        data[1] = count as u8;
+        for (i, &(idx, phase)) in self.keys.iter().enumerate().take(count) {
+            data[2 + i * 2] = idx;
+            data[2 + i * 2 + 1] = phase;
+        }
+        data
+    }
+}
+
+/// Cancel a specific animation definition (0xEA sub 0xFE).
+#[derive(Debug, Clone)]
+pub struct AnimCancel {
+    pub def_id: u8,
+}
+
+impl HidCommand for AnimCancel {
+    const CMD: u8 = cmd::ANIM_CMD;
+    const CHECKSUM: ChecksumType = ChecksumType::None;
+
+    fn to_data(&self) -> Vec<u8> {
+        vec![0xFE, self.def_id]
+    }
+}
+
+/// Clear all animations (0xEA sub 0xFF).
+#[derive(Debug, Clone)]
+pub struct AnimClear;
+
+impl HidCommand for AnimClear {
+    const CMD: u8 = cmd::ANIM_CMD;
+    const CHECKSUM: ChecksumType = ChecksumType::None;
+
+    fn to_data(&self) -> Vec<u8> {
+        vec![0xFF]
+    }
+}
+
+/// Query animation engine status (0xEA sub 0xF0).
+#[derive(Debug, Clone)]
+pub struct AnimQuery;
+
+impl HidCommand for AnimQuery {
+    const CMD: u8 = cmd::ANIM_CMD;
+    const CHECKSUM: ChecksumType = ChecksumType::None;
+
+    fn to_data(&self) -> Vec<u8> {
+        vec![0xF0]
+    }
+}
+
+/// Status of a single animation definition slot (from query response).
+#[derive(Debug, Clone)]
+pub struct AnimDefStatusRaw {
+    pub id: u8,
+    pub num_kf: u8,
+    pub flags: u8,
+    pub priority: i8,
+    pub key_count: u8,
+    pub duration_ticks: u16,
+}
+
+/// Animation engine query response.
+#[derive(Debug, Clone)]
+pub struct AnimQueryResponse {
+    pub active_count: u8,
+    pub frame_count: u32,
+    pub overlay_active: bool,
+    pub defs: Vec<AnimDefStatusRaw>,
+}
+
+impl HidResponse for AnimQueryResponse {
+    const CMD_ECHO: u8 = cmd::ANIM_CMD;
+    const MIN_LEN: usize = 56; // 1 (echo) + 1 (sub) + 1 (active) + 4 (frame) + 1 (overlay) + 48 (8×6)
+
+    fn from_data(data: &[u8]) -> Result<Self, ParseError> {
+        // data[0] = cmd echo (0xEA), data[1] = sub echo (0xF0)
+        if data.get(1) != Some(&0xF0) {
+            return Err(ParseError::CommandMismatch {
+                expected: 0xF0,
+                got: data.get(1).copied().unwrap_or(0),
+            });
+        }
+
+        let active_count = data[2];
+        let frame_count = u32::from_le_bytes([data[3], data[4], data[5], data[6]]);
+        let overlay_active = data[7] != 0;
+
+        let mut defs = Vec::new();
+        for d in 0..8u8 {
+            let base = 8 + d as usize * 6;
+            let num_kf = data[base];
+            if num_kf == 0 {
+                continue;
+            }
+            defs.push(AnimDefStatusRaw {
+                id: d,
+                num_kf,
+                flags: data[base + 1],
+                priority: data[base + 2] as i8,
+                key_count: data[base + 3],
+                duration_ticks: u16::from_le_bytes([data[base + 4], data[base + 5]]),
+            });
+        }
+
+        Ok(Self {
+            active_count,
+            frame_count,
+            overlay_active,
+            defs,
+        })
+    }
+}
+
+/// Query key assignments for one def (0xEA sub 0xF1-0xF8).
+#[derive(Debug, Clone)]
+pub struct AnimQueryKeys {
+    pub def_id: u8,
+}
+
+impl HidCommand for AnimQueryKeys {
+    const CMD: u8 = cmd::ANIM_CMD;
+    const CHECKSUM: ChecksumType = ChecksumType::None;
+
+    fn to_data(&self) -> Vec<u8> {
+        vec![0xF1 + (self.def_id & 0x07)]
+    }
+}
+
+/// Key assignment query response.
+#[derive(Debug, Clone)]
+pub struct AnimQueryKeysResponse {
+    /// (strip_idx, phase_offset) pairs.
+    pub keys: Vec<(u8, u8)>,
+}
+
+impl HidResponse for AnimQueryKeysResponse {
+    const CMD_ECHO: u8 = cmd::ANIM_CMD;
+    const MIN_LEN: usize = 3; // echo + sub + count
+
+    fn from_data(data: &[u8]) -> Result<Self, ParseError> {
+        // data[0] = 0xEA, data[1] = sub echo (0xF1-0xF8), data[2] = count
+        let expected_range = 0xF1..=0xF8;
+        let sub = data.get(1).copied().unwrap_or(0);
+        if !expected_range.contains(&sub) {
+            return Err(ParseError::CommandMismatch {
+                expected: 0xF1,
+                got: sub,
+            });
+        }
+
+        let count = data.get(2).copied().unwrap_or(0) as usize;
+        let mut keys = Vec::with_capacity(count);
+        for i in 0..count {
+            let base = 3 + i * 2;
+            if base + 1 < data.len() {
+                keys.push((data[base], data[base + 1]));
+            }
+        }
+        Ok(Self { keys })
+    }
+}
+
 // Tests
 // =============================================================================
 

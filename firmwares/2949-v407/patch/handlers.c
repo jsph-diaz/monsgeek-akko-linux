@@ -1171,6 +1171,7 @@ static int handle_anim_cmd(volatile uint8_t *buf) {
 
 done:
     buf[0] = 0;
+    buf[3] = 0;  /* clear sub-echo area — prevents stale reads from matching query echoes */
     return 1;
 }
 
