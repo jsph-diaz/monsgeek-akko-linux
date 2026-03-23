@@ -78,7 +78,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 gif = "0.13"
 
 # D-Bus IPC (for notify daemon)
-zbus = { version = "5", optional = true }
+zbus = { version = "5", default-features = false, features = ["tokio"], optional = true }
 
 # Effect engine (keyframe animations + TOML config)
 keyframe = "1.1"

@@ -384,7 +384,6 @@ fn parse_text_target(text: &str) -> Result<KeyTarget, String> {
     let mut indices = Vec::new();
     let mut slots = Vec::new();
     let mut slot = 0usize;
-    let mut seen = std::collections::HashSet::new();
 
     for ch in text.chars() {
         if ch == ' ' {
@@ -396,11 +395,9 @@ fn parse_text_target(text: &str) -> Result<KeyTarget, String> {
         if let Some(key_name) = char_to_key_name(ch) {
             if let Some((row, col)) = key_name_to_pos(key_name) {
                 let idx = pos_to_matrix_index(row, col);
-                if seen.insert(idx) {
-                    indices.push(idx);
-                    slots.push(slot);
-                }
-                // Always advance slot even for duplicates
+                // Allow duplicates — repeated keys are split into timed sends
+                indices.push(idx);
+                slots.push(slot);
             }
         }
         // Unknown chars are silently skipped (no slot advance)
@@ -567,13 +564,13 @@ mod tests {
     #[test]
     fn test_text_hello() {
         let target = parse_key_target("text:HELLO").unwrap();
-        assert_eq!(target.indices.len(), 4); // H, E, L, O (no dupes)
-                                             // Slots: H=0, E=1, L=2, L=skip(dupe), O=4
-        assert_eq!(target.slots.len(), 4);
+        assert_eq!(target.indices.len(), 5); // H, E, L, L, O (dupes allowed)
+        assert_eq!(target.slots.len(), 5);
         assert_eq!(target.slots[0], 0); // H
         assert_eq!(target.slots[1], 1); // E
         assert_eq!(target.slots[2], 2); // L (first)
-        assert_eq!(target.slots[3], 4); // O (slot 3 was second L, skipped)
+        assert_eq!(target.slots[3], 3); // L (second)
+        assert_eq!(target.slots[4], 4); // O
     }
 
     #[test]

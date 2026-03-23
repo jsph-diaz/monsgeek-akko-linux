@@ -124,14 +124,18 @@ pub async fn run_with_cancel(
     let store: SharedStore = Arc::new(Mutex::new(NotificationStore::new()));
     let effects = Arc::new(effects);
 
+    // Pending wave queue for repeated-key text animations
+    let pending_waves: super::dbus::PendingWaveQueue = Arc::new(Mutex::new(Vec::new()));
+
     // Start D-Bus server
     let dbus_store = Arc::clone(&store);
     let dbus_effects = Arc::clone(&effects);
+    let dbus_waves = Arc::clone(&pending_waves);
     let conn = zbus::connection::Builder::session()?
         .name("org.monsgeek.Notify1")?
         .serve_at(
             "/org/monsgeek/Notify1",
-            NotifyInterface::new(dbus_store, dbus_effects),
+            NotifyInterface::new(dbus_store, dbus_effects, dbus_waves),
         )?
         .build()
         .await?;
@@ -146,11 +150,15 @@ pub async fn run_with_cancel(
         "Render loop started"
     );
 
-    // Streaming fallback polls at 30fps; with animation engine the loop
-    // only handles expiry/programming and can tick much slower.
-    let poll_hz = if has_anim { 4 } else { 30 };
-    let frame_duration = std::time::Duration::from_secs_f64(1.0 / poll_hz as f64);
-    let mut interval = tokio::time::interval(frame_duration);
+    // Base poll rate: 4Hz with anim engine, 30Hz streaming fallback.
+    // Increases to 100Hz when pending waves need processing.
+    let base_duration = if has_anim {
+        std::time::Duration::from_millis(250)
+    } else {
+        std::time::Duration::from_millis(33)
+    };
+    let fast_duration = std::time::Duration::from_millis(10);
+    let mut interval = tokio::time::interval(base_duration);
     let mut prev_frame = [(0u8, 0u8, 0u8); MATRIX_LEN];
 
     // Animation engine state
@@ -196,7 +204,9 @@ pub async fn run_with_cancel(
                     None => continue,
                 };
 
-                // Try to join an existing def with identical compiled output
+                // Try to join an existing def with identical compiled output.
+                // For one-shot: phase offset = original slot × stagger, so the
+                // key starts at the right point in the def's elapsed timeline.
                 let existing_slot = {
                     let si = slot_info.lock().unwrap();
                     (0..8u8).find(|&s| si.get(s).is_some_and(|e| e.compiled == compiled))
@@ -235,6 +245,48 @@ pub async fn run_with_cancel(
                     }
                 } else {
                     needs_streaming = true;
+                }
+            }
+
+            // Process pending waves (repeated-key reassignments)
+            {
+                let now = std::time::Instant::now();
+                let mut waves = pending_waves.lock().await;
+                waves.retain(|wave| {
+                    if now < wave.send_at {
+                        return true; // not yet
+                    }
+                    // Find the def slot running this animation
+                    let def_id = {
+                        let si = slot_info.lock().unwrap();
+                        (0..8u8).find(|&s| si.get(s).is_some_and(|e| e.compiled == wave.compiled))
+                    };
+                    if let Some(def_id) = def_id {
+                        let keys: Vec<(u8, u8)> = wave
+                            .indices
+                            .iter()
+                            .zip(&wave.slots)
+                            .map(|(&idx, &slot)| {
+                                (
+                                    idx as u8,
+                                    anim::ms_to_phase_offset(slot as f64 * wave.stagger_ms),
+                                )
+                            })
+                            .collect();
+                        let _ = engine.kb().anim_assign(def_id, &keys);
+                        debug!(def_id, keys = keys.len(), "Processed wave reassign");
+                    }
+                    false // remove from queue
+                });
+                // Speed up loop while waves are pending
+                let new_dur = if waves.is_empty() {
+                    base_duration
+                } else {
+                    fast_duration
+                };
+                if interval.period() != new_dur {
+                    interval = tokio::time::interval(new_dur);
+                    interval.reset();
                 }
             }
 

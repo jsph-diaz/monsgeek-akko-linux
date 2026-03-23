@@ -13,6 +13,26 @@ use super::keymap;
 use super::state::{Notification, NotificationStore};
 use crate::effect::{self, EffectLibrary};
 
+/// A delayed key reassignment for repeated keys in text animations.
+#[derive(Debug, Clone)]
+pub struct PendingWave {
+    /// Matrix indices to assign.
+    pub indices: Vec<usize>,
+    /// Original slot numbers (for phase offset computation).
+    pub slots: Vec<usize>,
+    /// Stagger interval in ms per slot.
+    pub stagger_ms: f64,
+    /// Wall-clock time to send this wave.
+    pub send_at: Instant,
+    /// Effect name (for slot matching).
+    pub effect_name: String,
+    /// Compiled animation (for slot matching).
+    pub compiled: crate::effect::CompiledAnim,
+}
+
+/// Queue of pending waves shared between D-Bus handler and daemon loop.
+pub type PendingWaveQueue = Arc<Mutex<Vec<PendingWave>>>;
+
 /// Shared state between D-Bus interface and render loop.
 pub type SharedStore = Arc<Mutex<NotificationStore>>;
 
@@ -20,11 +40,20 @@ pub type SharedStore = Arc<Mutex<NotificationStore>>;
 pub struct NotifyInterface {
     store: SharedStore,
     effects: Arc<EffectLibrary>,
+    pending_waves: PendingWaveQueue,
 }
 
 impl NotifyInterface {
-    pub fn new(store: SharedStore, effects: Arc<EffectLibrary>) -> Self {
-        Self { store, effects }
+    pub fn new(
+        store: SharedStore,
+        effects: Arc<EffectLibrary>,
+        pending_waves: PendingWaveQueue,
+    ) -> Self {
+        Self {
+            store,
+            effects,
+            pending_waves,
+        }
     }
 }
 
@@ -63,19 +92,8 @@ impl NotifyInterface {
             ))
         })?;
 
-        // Compute per-key stagger offsets
-        let stagger_offsets: HashMap<usize, f64> = if stagger_ms > 0.0 {
-            target
-                .indices
-                .iter()
-                .zip(&target.slots)
-                .map(|(&idx, &slot)| (idx, slot as f64 * stagger_ms))
-                .collect()
-        } else {
-            HashMap::new()
-        };
-
         // TTL: -1 = use effect default, 0 = no expiry, >0 = explicit ms
+        let max_slot = target.slots.iter().max().copied().unwrap_or(0);
         let mut ttl = if ttl_ms > 0 {
             Some(Duration::from_millis(ttl_ms as u64))
         } else if ttl_ms == -1 {
@@ -85,24 +103,24 @@ impl NotifyInterface {
         } else {
             None
         };
-
-        // Extend TTL to account for stagger: last key needs its full animation
+        // Extend TTL to cover the full stagger span
         if stagger_ms > 0.0 {
-            if let Some(max_slot) = target.slots.iter().max() {
-                let extension_ms = *max_slot as f64 * stagger_ms;
-                if extension_ms > 0.0 {
-                    let ext = Duration::from_secs_f64(extension_ms / 1000.0);
-                    ttl = ttl.map(|t| t + ext);
-                }
-            }
+            let ext_ms = max_slot as f64 * stagger_ms;
+            ttl = ttl.map(|t| t + Duration::from_secs_f64(ext_ms / 1000.0));
         }
 
+        // Split into waves for repeated keys
+        let waves = split_into_waves(&target.indices, &target.slots);
+        let (wave1_indices, wave1_slots) = &waves[0];
+
+        // Wave 1: only unique keys, posted to store for daemon programming
+        let stagger_offsets = build_stagger_offsets(wave1_indices, wave1_slots, stagger_ms);
         let notif = Notification {
             id: 0,
             source: source.to_string(),
             effect_name: effect_name.to_string(),
-            matrix_indices: target.indices,
-            resolved,
+            matrix_indices: wave1_indices.clone(),
+            resolved: resolved.clone(),
             priority,
             ttl,
             created: Instant::now(),
@@ -111,6 +129,30 @@ impl NotifyInterface {
 
         let mut store = self.store.lock().await;
         let id = store.add(notif);
+        drop(store);
+
+        // Waves 2+: enqueue for daemon to send via direct anim_assign
+        if waves.len() > 1 {
+            let one_shot = ttl.is_some() && resolved.duration_ms > 0.0;
+            let pri = priority.clamp(-128, 127) as i8;
+            if let Some(compiled) = resolved.compile_for_firmware(pri, one_shot) {
+                let now = Instant::now();
+                let mut queue = self.pending_waves.lock().await;
+                for (indices, slots) in waves.into_iter().skip(1) {
+                    let first_slot = slots.iter().min().copied().unwrap_or(0);
+                    let delay = Duration::from_secs_f64(first_slot as f64 * stagger_ms / 1000.0);
+                    queue.push(PendingWave {
+                        indices,
+                        slots,
+                        stagger_ms,
+                        send_at: now + delay,
+                        effect_name: effect_name.to_string(),
+                        compiled: compiled.clone(),
+                    });
+                }
+            }
+        }
+
         Ok(id)
     }
 
@@ -148,4 +190,40 @@ impl NotifyInterface {
         store.clear();
         Ok(())
     }
+}
+
+/// Split indices+slots into waves where no key index repeats within a wave.
+/// Each wave is a `(indices, slots)` pair preserving original slot numbers.
+fn split_into_waves(indices: &[usize], slots: &[usize]) -> Vec<(Vec<usize>, Vec<usize>)> {
+    let mut waves: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
+
+    for (&idx, &slot) in indices.iter().zip(slots) {
+        // Find the first wave that doesn't already contain this key
+        let wave_idx = waves
+            .iter()
+            .position(|(idxs, _)| !idxs.contains(&idx))
+            .unwrap_or_else(|| {
+                waves.push((Vec::new(), Vec::new()));
+                waves.len() - 1
+            });
+        waves[wave_idx].0.push(idx);
+        waves[wave_idx].1.push(slot);
+    }
+
+    waves
+}
+
+fn build_stagger_offsets(
+    indices: &[usize],
+    slots: &[usize],
+    stagger_ms: f64,
+) -> HashMap<usize, f64> {
+    if stagger_ms <= 0.0 {
+        return HashMap::new();
+    }
+    indices
+        .iter()
+        .zip(slots)
+        .map(|(&idx, &slot)| (idx, slot as f64 * stagger_ms))
+        .collect()
 }
