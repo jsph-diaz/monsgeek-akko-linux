@@ -515,11 +515,39 @@ to the keyboard via SPI (not handled locally), so they work over both wired USB 
 | 0xE7 | PATCH_INFO | GET | Returns magic 0xCAFE, patch version, capability bitmask, name, diagnostics |
 | 0xE8 | LED_STREAM | SET | Per-key RGB streaming: page 0–6 = 18 keys, 0xFF = commit, 0xFE = release |
 | 0xE9 | DEBUG_LOG | GET | Ring buffer read: page 0–9, 56 bytes/page |
+| 0xEA | ANIM_CMD | SET/GET | Animation engine: DEF/ASSIGN/CANCEL/CLEAR/QUERY (sub-command in byte 1) |
 
-**Why 0xE7–0xE9?** The previous command bytes (0xFB/0xFC/0xFD) collided with dongle-local
+**Why 0xE7–0xEA?** The previous command bytes (0xFB/0xFC/0xFD) collided with dongle-local
 commands GET_RF_INFO, GET_CACHED_RESPONSE, and GET_DONGLE_ID respectively. The dongle
 intercepts those locally and never forwards them to the keyboard, making patch detection
 impossible over the wireless path.
+
+#### ANIM_CMD (0xEA) Sub-Commands
+
+The animation engine uses sub-commands in data byte 1:
+
+| Sub-cmd | Name | Direction | Description |
+|---------|------|-----------|-------------|
+| 0x00–0x07 | ASSIGN | SET | Assign keys to def (id = sub). Data: count(1B), [matrix_idx, phase_offset] × max 29 |
+| 0x08–0x0F | DEF | SET | Define animation (id = sub & 0x07). Data: num_kf, flags, priority, duration(u16 LE), keyframes × max 4 |
+| 0x10–0x17 | DEF_EXT | SET | Continuation keyframes 4–7 for def (id = sub & 0x07) |
+| 0xF0 | QUERY | GET | Engine status. Response: sub_echo(0xF0), active_count, frame_count(u32 LE), overlay_active, 8 × def_status(6B) |
+| 0xF1–0xF8 | QUERY_KEYS | GET | Key assignments for def (id = sub - 0xF1). Response: sub_echo, count, [strip_idx, phase_offset] × max 28 |
+| 0xFE | CANCEL | SET | Cancel def (id in data byte 2). Clears def + assigned keys |
+| 0xFF | CLEAR | SET | Clear all defs, key assignments, and overlay |
+
+**DEF wire format** (data bytes 1–28):
+```
+[1] num_kf (1–8)
+[2] flags (bit 0: one-shot, bit 2: rainbow)
+[3] priority (int8)
+[4–5] duration_ticks (u16 LE, ~10ms/tick at 100Hz)
+[6–25] keyframes 0–3: [t_ticks(u16 LE), color_rgb565(u16 LE), easing(u8)] × 5B each
+```
+
+**Easing IDs**: 0=Hold, 1=Linear, 2=InOutQuad, 3=InQuad, 4=OutQuad, 5=InExpo, 6=OutExpo
+
+**QUERY response** includes sub-echo byte (0xF0) at offset 1 for stale-response disambiguation. All ANIM sub-commands share cmd echo 0xEA, so the driver retries if the sub-echo doesn't match.
 
 ### 4.3 Magnetism Sub-Commands (0x65 / 0xE5)
 

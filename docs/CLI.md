@@ -707,3 +707,111 @@ iot_driver joystick --headless
 | Toggle Hold | Toggle on hold |
 | Toggle Dots | Toggle on double-tap |
 | Snap-Tap | SOCD resolution (bind to another key) |
+
+## Notification Commands
+
+LED notifications via the on-device animation engine. Requires patched firmware with `anim_engine` capability. The daemon programs keyframe animations on the keyboard; firmware ticks them at ~100Hz autonomously.
+
+### notify-daemon
+
+Start the notification daemon (D-Bus server + animation programmer).
+
+```bash
+iot_driver notify-daemon
+iot_driver notify-daemon --power-budget 200   # limit LED power to 200mA
+```
+
+**Aliases:** `nd`
+
+| Flag | Description |
+|------|-------------|
+| `--power-budget <mA>` | LED power budget in milliamps (default: 400, 0 = unlimited) |
+
+### notify
+
+Post a notification to the daemon.
+
+```bash
+iot_driver notify <KEY> <EFFECT> [options]
+```
+
+**Aliases:** `n`
+
+| Argument | Description |
+|----------|-------------|
+| `KEY` | Target key: name (`Esc`, `F1`), group (`frow`, `letters`, `row0`), range (`Q..U`), index (`#42`), or text (`text:hello`) |
+| `EFFECT` | Effect preset name from `~/.config/monsgeek/effects.toml` |
+
+| Flag | Description |
+|------|-------------|
+| `--var <name=value>` / `-v` | Variable binding (repeatable). Special: `stagger=<ms>` sets per-key delay |
+| `--priority <N>` | Priority (higher wins key conflicts, default 0) |
+| `--ttl <ms>` | Time-to-live (-1 = use effect default, 0 = no expiry) |
+
+**Examples:**
+```bash
+iot_driver notify Esc breathe --var color=cyan
+iot_driver notify frow police
+iot_driver notify "text:hello world" typewriter --var stagger=150 --var color=red
+iot_driver notify letters solid --var color=green --priority -10
+iot_driver notify F1 pulse --var color=white --var decay=400
+```
+
+**Text targets**: `text:` prefix maps characters to key positions. Repeated keys (e.g. "hello" has two L's) are handled via timed wave splitting — each occurrence triggers independently.
+
+### notify-ack
+
+Dismiss notifications.
+
+```bash
+iot_driver notify-ack --id 42         # by notification ID
+iot_driver notify-ack --key Esc       # by key
+iot_driver notify-ack --source tmux   # by source
+iot_driver notify-ack --all           # clear all
+```
+
+### notify-list
+
+List active notifications.
+
+```bash
+iot_driver notify-list
+```
+
+### notify-clear
+
+Clear all notifications.
+
+```bash
+iot_driver notify-clear
+```
+
+### anim-status
+
+Query the firmware animation engine state.
+
+```bash
+iot_driver anim-status
+# → 2 active
+# →   def[0]: 3KF pri=0 12keys loop
+# →   def[7]: 2KF pri=127 12keys one-shot
+```
+
+Shows active definition slots, keyframe counts, priorities, assigned key counts, and animation mode.
+
+## Effect Presets
+
+Effects are defined in `~/.config/monsgeek/effects.toml`. Built-in presets:
+
+| Name | Description | Key Variables |
+|------|-------------|---------------|
+| breathe | Smooth fade in/out | `color` (default: cyan), `half` (default: 1000ms) |
+| flash | On/off blink | `color` (yellow), `on`/`off` (500ms each) |
+| pulse | Instant flash + exponential decay | `color` (white), `decay` (800ms) |
+| solid | Constant color | `color` (green) |
+| police | Red/blue alternating | `flash` (200ms) |
+| rainbow | Hue rotation | — |
+| typewriter | Keypress flash + decay | `color` (red), `decay` (800ms) |
+| build-status | Ramp up, hold, fade out | `status` (green), TTL 3000ms |
+
+Custom effects support `t=` (absolute ms) or `d=` (segment duration) timing, per-keyframe color overrides, and easing functions: Hold, Linear, EaseIn, EaseOut, EaseInOut, EaseInExpo, EaseOutExpo.

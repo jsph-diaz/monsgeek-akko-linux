@@ -8,6 +8,7 @@ Custom firmware patches for the MonsGeek M1 V5 keyboard and its 2.4GHz wireless 
 
 - **Battery over USB HID** — Exposes battery level (0–100%) and charging status as a standard HID power supply. Desktop environments (KDE, GNOME) show battery in the system tray automatically.
 - **LED streaming** — Per-key RGB control from the host. The driver can push GIF animations frame-by-frame to the keyboard LEDs at ~30fps.
+- **Animation engine** — On-device keyframe animation with 8 concurrent definitions, per-key phase offsets, and integer easing (Hold/Linear/InQuad/OutQuad/InOutQuad/InExpo/OutExpo). The daemon sends a compact animation definition once; firmware ticks it autonomously at ~100Hz. Eliminates USB streaming overhead for LED notifications.
 - **Debug log** — Ring buffer readable over HID for diagnostics (developer use).
 - **RTT telemetry** — SEGGER RTT channel for live battery ADC/charger monitoring over SWD (developer use).
 - **Consumer control fix** — Reroutes encoder consumer data to the correct RF sub-type for dongle mode, and NOPs the stock firmware's premature buffer zeroing so consumer data survives until transmission. See [consumer_report_dongle_misroute](bugs/consumer_report_dongle_misroute.txt).
@@ -60,6 +61,27 @@ iot_driver stream-test
 ```
 
 LED streaming temporarily overrides the current LED effect. The built-in effect resumes when streaming stops.
+
+### Animation engine
+
+The notification daemon programs keyframe animations directly on the keyboard. No continuous USB traffic — the firmware evaluates animations at ~100Hz.
+
+```bash
+# Start the notification daemon (D-Bus server)
+iot_driver notify-daemon
+
+# Send a notification (from another terminal)
+iot_driver notify Esc breathe --var color=cyan
+iot_driver notify "text:hello" typewriter --var stagger=150 --var color=red
+iot_driver notify frow police
+
+# Query firmware animation state
+iot_driver anim-status
+```
+
+Effects are defined in `~/.config/monsgeek/effects.toml`. Built-in presets: breathe, flash, pulse, solid, police, rainbow, typewriter, build-status.
+
+The TUI's Notify tab provides live visualization: per-def brightness sparklines (interpolated at 60fps), key assignments with phase offsets, and on-device preview via `p`.
 
 ### Patch detection
 
@@ -207,18 +229,19 @@ Hook modes:
 
 **SRAM layout**:
 ```
-0x20009800 - 0x20009BFF   PATCH_SRAM (4KB)
+0x20009800 - 0x20009BFF   PATCH_SRAM (4KB, 47% used)
   - RTT control block (pinned at start via .rtt section)
   - extended_rdesc buffer (217 bytes)
   - Debug log ring buffer (512 bytes)
   - Diagnostic counters
+  - Animation engine: 8 defs × 56B, 82 key assignments × 2B, overlay buf 246B
 ```
 
 **Hooks** (5 total):
 
 | Hook | Target | Mode | Purpose |
 |------|--------|------|---------|
-| `vendor_dispatch` | `vendor_command_dispatch` (0x08013304) | filter | Intercepts 0xE7/0xE8/0xE9 vendor commands |
+| `vendor_dispatch` | `vendor_command_dispatch` (0x08013304) | filter | Intercepts 0xE7/0xE8/0xE9/0xEA vendor commands |
 | `hid_class_setup` | `hid_class_setup_handler` (0x0801474C) | filter | Intercepts GET_REPORT for battery Feature report (ID 7) |
 | `usb_connect` | `usb_otg_device_connect` (0x08018690) | filter | Patches descriptors + inits RTT before USB enumeration |
 | `battery_monitor` | `battery_level_monitor` (0x0801695C) | before | Emits RTT telemetry for ADC/battery debugging |
@@ -317,8 +340,9 @@ The dongle uses a HID Feature report instead of a vendor command because 0xE7 is
 | 3 | `consumer_fix` | Encoder data rerouted to sub=3 | — |
 | 4 | `consumer_redirect` | — | Sub=3 consumer → EP2 (native path) |
 | 5 | `speed_gate_nop` | — | USB speed check NOPd |
+| 6 | `anim_engine` | On-device animation engine (0xEA) | — |
 
-Current values: MONSMOD = 0x000F, MONSDON = 0x0031.
+Current values: MONSMOD = 0x004F, MONSDON = 0x0031.
 
 ### Symbol export pipeline
 
