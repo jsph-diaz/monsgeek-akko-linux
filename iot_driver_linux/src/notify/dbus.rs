@@ -173,6 +173,7 @@ impl NotifyInterface {
         let mut store = self.store.lock().await;
         store.remove(id);
         drop(store);
+        self.log.push(format!("dbus: ack id={id}"));
         self.wake.notify_one();
         Ok(())
     }
@@ -183,6 +184,7 @@ impl NotifyInterface {
         let mut store = self.store.lock().await;
         store.remove_by_key(&target.indices);
         drop(store);
+        self.log.push(format!("dbus: ack key={key}"));
         self.wake.notify_one();
         Ok(())
     }
@@ -192,6 +194,7 @@ impl NotifyInterface {
         let mut store = self.store.lock().await;
         store.remove_by_source(source);
         drop(store);
+        self.log.push(format!("dbus: ack source={source}"));
         self.wake.notify_one();
         Ok(())
     }

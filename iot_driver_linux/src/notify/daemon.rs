@@ -230,6 +230,26 @@ pub async fn run_with_cancel(
                 }
                 programmed.remove(id);
             }
+
+            // Cancel animations for ack'd/removed notifications
+            let active_ids: std::collections::HashSet<u64> = store_guard
+                .list()
+                .iter()
+                .map(|&(id, _, _, _, _)| id)
+                .collect();
+            let removed: Vec<u64> = programmed
+                .iter()
+                .copied()
+                .filter(|id| !active_ids.contains(id))
+                .collect();
+            for id in removed {
+                if let Some(def_id) = slots.free_by_notif(id) {
+                    engine.cancel(def_id).ok();
+                    slot_info.lock().unwrap().clear(def_id);
+                    log.push(format!("ack id={id} → cancel slot {def_id}"));
+                }
+                programmed.remove(&id);
+            }
         }
 
         if has_anim {
