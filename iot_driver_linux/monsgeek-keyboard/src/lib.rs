@@ -1561,19 +1561,30 @@ impl KeyboardInterface {
     ) -> Result<(), KeyboardError> {
         use monsgeek_transport::command::{AnimDefine, AnimDefineExt};
         let num_kf = keyframes.len().min(8) as u8;
-        self.transport.send(&AnimDefine {
-            def_id,
-            num_kf,
-            flags,
-            priority,
-            duration_ticks,
-            keyframes: keyframes.to_vec(),
-        })?;
-        if num_kf > 4 {
-            self.transport.send(&AnimDefineExt {
+        // Use query_command (not send) — ensures dongle relay completes
+        let _ = self.transport.query_command(
+            cmd::ANIM_CMD,
+            &AnimDefine {
                 def_id,
-                keyframes: keyframes[4..num_kf as usize].to_vec(),
-            })?;
+                num_kf,
+                flags,
+                priority,
+                duration_ticks,
+                keyframes: keyframes.to_vec(),
+            }
+            .to_data(),
+            ChecksumType::None,
+        );
+        if num_kf > 4 {
+            let _ = self.transport.query_command(
+                cmd::ANIM_CMD,
+                &AnimDefineExt {
+                    def_id,
+                    keyframes: keyframes[4..num_kf as usize].to_vec(),
+                }
+                .to_data(),
+                ChecksumType::None,
+            );
         }
         Ok(())
     }
@@ -1585,25 +1596,36 @@ impl KeyboardInterface {
     pub fn anim_assign(&self, def_id: u8, keys: &[(u8, u8)]) -> Result<(), KeyboardError> {
         use monsgeek_transport::command::AnimAssign;
         for chunk in keys.chunks(29) {
-            self.transport.send(&AnimAssign {
-                def_id,
-                keys: chunk.to_vec(),
-            })?;
+            let _ = self.transport.query_command(
+                cmd::ANIM_CMD,
+                &AnimAssign {
+                    def_id,
+                    keys: chunk.to_vec(),
+                }
+                .to_data(),
+                ChecksumType::None,
+            );
         }
         Ok(())
     }
 
     /// Cancel a specific animation definition and release its keys.
     pub fn anim_cancel(&self, def_id: u8) -> Result<(), KeyboardError> {
-        self.transport
-            .send(&monsgeek_transport::command::AnimCancel { def_id })?;
+        let _ = self.transport.query_command(
+            cmd::ANIM_CMD,
+            &monsgeek_transport::command::AnimCancel { def_id }.to_data(),
+            ChecksumType::None,
+        );
         Ok(())
     }
 
     /// Clear all animations and overlay.
     pub fn anim_clear(&self) -> Result<(), KeyboardError> {
-        self.transport
-            .send(&monsgeek_transport::command::AnimClear)?;
+        let _ = self.transport.query_command(
+            cmd::ANIM_CMD,
+            &monsgeek_transport::command::AnimClear.to_data(),
+            ChecksumType::None,
+        );
         Ok(())
     }
 
