@@ -128,15 +128,19 @@ pub async fn run_with_cancel(
     // Pending wave queue for repeated-key text animations
     let pending_waves: super::dbus::PendingWaveQueue = Arc::new(Mutex::new(Vec::new()));
 
+    // Wake signal: D-Bus handler signals daemon loop on store changes
+    let wake: super::dbus::WakeSignal = Arc::new(tokio::sync::Notify::new());
+
     // Start D-Bus server
     let dbus_store = Arc::clone(&store);
     let dbus_effects = Arc::clone(&effects);
     let dbus_waves = Arc::clone(&pending_waves);
+    let dbus_wake = Arc::clone(&wake);
     let conn = zbus::connection::Builder::session()?
         .name("org.monsgeek.Notify1")?
         .serve_at(
             "/org/monsgeek/Notify1",
-            NotifyInterface::new(dbus_store, dbus_effects, dbus_waves),
+            NotifyInterface::new(dbus_store, dbus_effects, dbus_waves, dbus_wake),
         )?
         .build()
         .await?;
@@ -151,24 +155,22 @@ pub async fn run_with_cancel(
         "Render loop started"
     );
 
-    // Base poll rate: 4Hz with anim engine, 30Hz streaming fallback.
-    // Increases to 100Hz when pending waves need processing.
-    let base_duration = if has_anim {
-        std::time::Duration::from_millis(250)
-    } else {
-        std::time::Duration::from_millis(33)
-    };
-    let fast_duration = std::time::Duration::from_millis(10);
-    let mut interval = tokio::time::interval(base_duration);
+    // Expiry/wave timer — only needed for TTL expiry and pending wave processing.
+    let expiry_interval = std::time::Duration::from_secs(1);
+    let wave_interval = std::time::Duration::from_millis(10);
+    let mut timer = tokio::time::interval(expiry_interval);
     let mut prev_frame = [(0u8, 0u8, 0u8); MATRIX_LEN];
 
     // Animation engine state
     let mut slots = AnimSlotManager::new();
-    // Track which notification IDs we've already programmed
     let mut programmed: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
     while running.load(Ordering::SeqCst) {
-        interval.tick().await;
+        // Wait for either: D-Bus wake signal or timer tick (expiry/waves)
+        tokio::select! {
+            _ = wake.notified() => {}
+            _ = timer.tick() => {}
+        }
 
         let mut store_guard = store.lock().await;
 
@@ -280,14 +282,15 @@ pub async fn run_with_cancel(
                     false // remove from queue
                 });
                 // Speed up loop while waves are pending
+                // Speed up timer while waves are pending
                 let new_dur = if waves.is_empty() {
-                    base_duration
+                    expiry_interval
                 } else {
-                    fast_duration
+                    wave_interval
                 };
-                if interval.period() != new_dur {
-                    interval = tokio::time::interval(new_dur);
-                    interval.reset();
+                if timer.period() != new_dur {
+                    timer = tokio::time::interval(new_dur);
+                    timer.reset();
                 }
             }
 

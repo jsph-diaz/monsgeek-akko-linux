@@ -36,11 +36,15 @@ pub type PendingWaveQueue = Arc<Mutex<Vec<PendingWave>>>;
 /// Shared state between D-Bus interface and render loop.
 pub type SharedStore = Arc<Mutex<NotificationStore>>;
 
+/// Wakeup signal — D-Bus handler notifies the daemon loop when state changes.
+pub type WakeSignal = Arc<tokio::sync::Notify>;
+
 /// D-Bus interface implementation.
 pub struct NotifyInterface {
     store: SharedStore,
     effects: Arc<EffectLibrary>,
     pending_waves: PendingWaveQueue,
+    wake: WakeSignal,
 }
 
 impl NotifyInterface {
@@ -48,11 +52,13 @@ impl NotifyInterface {
         store: SharedStore,
         effects: Arc<EffectLibrary>,
         pending_waves: PendingWaveQueue,
+        wake: WakeSignal,
     ) -> Self {
         Self {
             store,
             effects,
             pending_waves,
+            wake,
         }
     }
 }
@@ -130,6 +136,7 @@ impl NotifyInterface {
         let mut store = self.store.lock().await;
         let id = store.add(notif);
         drop(store);
+        self.wake.notify_one();
 
         // Waves 2+: enqueue for daemon to send via direct anim_assign
         if waves.len() > 1 {
@@ -160,6 +167,8 @@ impl NotifyInterface {
     async fn acknowledge(&self, id: u64) -> zbus::fdo::Result<()> {
         let mut store = self.store.lock().await;
         store.remove(id);
+        drop(store);
+        self.wake.notify_one();
         Ok(())
     }
 
@@ -168,6 +177,8 @@ impl NotifyInterface {
         let target = keymap::parse_key_target(key).map_err(zbus::fdo::Error::InvalidArgs)?;
         let mut store = self.store.lock().await;
         store.remove_by_key(&target.indices);
+        drop(store);
+        self.wake.notify_one();
         Ok(())
     }
 
@@ -175,6 +186,8 @@ impl NotifyInterface {
     async fn acknowledge_source(&self, source: &str) -> zbus::fdo::Result<()> {
         let mut store = self.store.lock().await;
         store.remove_by_source(source);
+        drop(store);
+        self.wake.notify_one();
         Ok(())
     }
 
@@ -188,6 +201,8 @@ impl NotifyInterface {
     async fn clear(&self) -> zbus::fdo::Result<()> {
         let mut store = self.store.lock().await;
         store.clear();
+        drop(store);
+        self.wake.notify_one();
         Ok(())
     }
 }
