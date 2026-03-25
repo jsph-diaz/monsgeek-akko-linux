@@ -67,6 +67,40 @@ impl AnimSlotManager {
     }
 }
 
+/// Diagonal magenta flash from Esc to bottom-right on daemon startup.
+fn startup_animation(engine: &AnimEngine) {
+    use crate::effect::{fw_easing, fw_flags, rgb_to_565};
+
+    // One-shot magenta pulse: instant on → exponential decay over 400ms (40 ticks)
+    let magenta_565 = rgb_to_565(255, 0, 255);
+    let keyframes = vec![
+        (0u16, magenta_565, fw_easing::OUT_EXPO), // t=0: full magenta, decay to next
+        (40u16, 0u16, fw_easing::LINEAR),         // t=40: black (end)
+    ];
+
+    // Total duration: animation (40 ticks) + max stagger (~20 ticks for diagonal)
+    if engine
+        .kb()
+        .anim_define(0, fw_flags::ONE_SHOT, -128, 40, &keyframes)
+        .is_err()
+    {
+        return;
+    }
+
+    // Assign all keys with diagonal stagger: phase = (row + col) * 1
+    // At 100Hz, phase_offset=1 → 8 ticks = 80ms per diagonal step
+    let mut keys = Vec::new();
+    for row in 0..6u8 {
+        for col in 0..16u8 {
+            let matrix_idx = row * 16 + col;
+            let phase = row + col; // diagonal distance from Esc
+            keys.push((matrix_idx, phase));
+        }
+    }
+
+    let _ = engine.kb().anim_assign(0, &keys);
+}
+
 /// Program a notification into the firmware animation engine.
 ///
 /// Returns true if successful, false if fallback needed.
@@ -116,6 +150,7 @@ pub async fn run_with_cancel(
     let has_anim = engine.is_available();
     if has_anim {
         engine.clear().ok();
+        startup_animation(&engine);
         info!("Animation engine detected — using on-device playback");
     } else {
         info!("No animation engine — using streaming fallback");
