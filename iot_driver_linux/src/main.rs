@@ -341,8 +341,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // === Notification Commands ===
         #[cfg(feature = "notify")]
-        Some(Commands::NotifyDaemon { power_budget }) => {
-            commands::notify::daemon(&ctx, power_budget).await?;
+        Some(Commands::NotifyDaemon {
+            power_budget,
+            verbose,
+        }) => {
+            commands::notify::daemon(&ctx, power_budget, verbose).await?;
         }
         #[cfg(feature = "notify")]
         Some(Commands::Notify {

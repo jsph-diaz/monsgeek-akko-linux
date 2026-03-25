@@ -45,6 +45,7 @@ pub struct NotifyInterface {
     effects: Arc<EffectLibrary>,
     pending_waves: PendingWaveQueue,
     wake: WakeSignal,
+    log: super::log::DaemonLog,
 }
 
 impl NotifyInterface {
@@ -53,12 +54,14 @@ impl NotifyInterface {
         effects: Arc<EffectLibrary>,
         pending_waves: PendingWaveQueue,
         wake: WakeSignal,
+        log: super::log::DaemonLog,
     ) -> Self {
         Self {
             store,
             effects,
             pending_waves,
             wake,
+            log,
         }
     }
 }
@@ -136,6 +139,8 @@ impl NotifyInterface {
         let mut store = self.store.lock().await;
         let id = store.add(notif);
         drop(store);
+        self.log
+            .push(format!("dbus: notify {key} {effect_name} id={id}"));
         self.wake.notify_one();
 
         // Waves 2+: enqueue for daemon to send via direct anim_assign

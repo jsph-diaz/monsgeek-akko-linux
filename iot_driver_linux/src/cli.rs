@@ -511,6 +511,9 @@ pub enum Commands {
         /// LED power budget in milliamps (0 = unlimited)
         #[arg(long, default_value = "400")]
         power_budget: u32,
+        /// Print daemon activity to stderr
+        #[arg(long, short)]
+        verbose: bool,
     },
 
     /// Post a notification to the daemon (requires running notify-daemon)

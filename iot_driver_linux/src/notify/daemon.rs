@@ -24,12 +24,14 @@ use crate::led_stream::{apply_power_budget, send_overlay_diff};
 pub async fn run(
     kb: monsgeek_keyboard::KeyboardInterface,
     power_budget: u32,
+    verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let running = Arc::new(AtomicBool::new(true));
     let r = Arc::clone(&running);
     ctrlc::set_handler(move || r.store(false, Ordering::SeqCst)).ok();
     let slot_info = Arc::new(std::sync::Mutex::new(crate::anim::SlotInfo::default()));
-    run_with_cancel(Arc::new(kb), power_budget, running, slot_info).await
+    let log = super::log::DaemonLog::new(verbose);
+    run_with_cancel(Arc::new(kb), power_budget, running, slot_info, log).await
 }
 
 /// Tracks firmware animation slot allocation.
@@ -133,6 +135,7 @@ pub async fn run_with_cancel(
     power_budget: u32,
     running: Arc<AtomicBool>,
     slot_info: SharedSlotInfo,
+    log: super::log::DaemonLog,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load effect library
     let effects = EffectLibrary::load_default().map_err(|e| format!("load effects: {e}"))?;
@@ -151,9 +154,9 @@ pub async fn run_with_cancel(
     if has_anim {
         engine.clear().ok();
         startup_animation(&engine);
-        info!("Animation engine detected — using on-device playback");
+        log.push("animation engine ready");
     } else {
-        info!("No animation engine — using streaming fallback");
+        log.push("no animation engine — streaming fallback");
     }
 
     // Shared state
@@ -175,7 +178,7 @@ pub async fn run_with_cancel(
         .name("org.monsgeek.Notify1")?
         .serve_at(
             "/org/monsgeek/Notify1",
-            NotifyInterface::new(dbus_store, dbus_effects, dbus_waves, dbus_wake),
+            NotifyInterface::new(dbus_store, dbus_effects, dbus_waves, dbus_wake, log.clone()),
         )?
         .build()
         .await?;
@@ -216,6 +219,7 @@ pub async fn run_with_cancel(
                 if let Some(def_id) = slots.free_by_notif(*id) {
                     engine.cancel(def_id).ok();
                     slot_info.lock().unwrap().clear(def_id);
+                    log.push(format!("expired id={id} → cancel slot {def_id}"));
                 }
                 programmed.remove(id);
             }
@@ -251,7 +255,6 @@ pub async fn run_with_cancel(
                 };
 
                 if let Some(def_id) = existing_slot {
-                    // Just assign new keys to the existing def
                     let keys: Vec<(u8, u8)> = notif
                         .matrix_indices
                         .iter()
@@ -262,9 +265,14 @@ pub async fn run_with_cancel(
                         })
                         .collect();
                     let _ = engine.kb().anim_assign(def_id, &keys);
-                    slots.slots[def_id as usize] = Some(id); // track for expiry
+                    slots.slots[def_id as usize] = Some(id);
                     programmed.insert(id);
-                    debug!(id, def_id, "Joined existing animation");
+                    log.push(format!(
+                        "join {} → slot {} ({} keys)",
+                        notif.effect_name,
+                        def_id,
+                        keys.len()
+                    ));
                 } else if let Some(def_id) = slots.allocate(id) {
                     if program_notification(&engine, notif, def_id) {
                         programmed.insert(id);
@@ -276,10 +284,16 @@ pub async fn run_with_cancel(
                                 compiled: compiled.clone(),
                             },
                         );
-                        debug!(id, def_id, "Programmed animation");
+                        log.push(format!(
+                            "upload {} → slot {} ({} keys)",
+                            notif.effect_name,
+                            def_id,
+                            notif.matrix_indices.len()
+                        ));
                     } else {
                         slots.free_by_notif(id);
                         needs_streaming = true;
+                        log.push(format!("upload {} failed, streaming", notif.effect_name));
                     }
                 } else {
                     needs_streaming = true;
@@ -312,7 +326,11 @@ pub async fn run_with_cancel(
                             })
                             .collect();
                         let _ = engine.kb().anim_assign(def_id, &keys);
-                        debug!(def_id, keys = keys.len(), "Processed wave reassign");
+                        log.push(format!(
+                            "wave reassign slot {} ({} keys)",
+                            def_id,
+                            keys.len()
+                        ));
                     }
                     false // remove from queue
                 });

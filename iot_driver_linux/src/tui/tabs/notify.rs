@@ -60,6 +60,9 @@ pub(in crate::tui) struct NotifyTabState {
     /// Shared slot info: daemon writes effect name + resolved, TUI reads for display/sparklines.
     pub slot_info: crate::anim::SharedSlotInfo,
 
+    /// Daemon activity log (shared ring buffer).
+    pub daemon_log: Option<crate::notify::log::DaemonLog>,
+
     pub dirty: bool,
 }
 
@@ -88,6 +91,7 @@ impl Default for NotifyTabState {
             labels: crate::effect::preview::build_labels(),
             power_budget: 400,
             slot_info: Arc::new(std::sync::Mutex::new(crate::anim::SlotInfo::default())),
+            daemon_log: None,
             dirty: false,
         }
     }
@@ -562,9 +566,12 @@ impl App {
 
             let power_budget = self.notify.power_budget;
             let labels = Arc::clone(&self.notify.slot_info);
+            let log = crate::notify::log::DaemonLog::new(false);
+            self.notify.daemon_log = Some(log.clone());
             let handle = tokio::spawn(async move {
                 let result =
-                    crate::notify::daemon::run_with_cancel(kb, power_budget, running, labels).await;
+                    crate::notify::daemon::run_with_cancel(kb, power_budget, running, labels, log)
+                        .await;
                 tx.send(AsyncResult::NotifyDaemonStopped(
                     result.map_err(|e| e.to_string()),
                 ));
@@ -959,7 +966,8 @@ fn render_notify_right(f: &mut Frame, app: &App, area: Rect) {
         .constraints([
             Constraint::Length(8), // Preview grid
             Constraint::Length(4), // Sparkline
-            Constraint::Min(4),    // Animation engine + keys (merged)
+            Constraint::Min(4),    // Animation engine + keys
+            Constraint::Length(8), // Daemon log
         ])
         .split(area);
 
@@ -973,6 +981,7 @@ fn render_notify_right(f: &mut Frame, app: &App, area: Rect) {
         0.0,
     );
     render_anim_status(f, app, chunks[2]);
+    render_daemon_log(f, app, chunks[3]);
 }
 
 fn render_anim_status(f: &mut Frame, app: &App, area: Rect) {
@@ -1278,4 +1287,45 @@ fn render_animation_curve(
             );
         }
     }
+}
+
+fn render_daemon_log(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title("Log");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let entries = app
+        .notify
+        .daemon_log
+        .as_ref()
+        .map(|l| l.entries())
+        .unwrap_or_default();
+
+    if entries.is_empty() {
+        f.render_widget(
+            Paragraph::new("(no activity)").style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
+        return;
+    }
+
+    // Show most recent entries that fit
+    let visible = inner.height as usize;
+    let start = entries.len().saturating_sub(visible);
+    let lines: Vec<Line> = entries[start..]
+        .iter()
+        .map(|e| {
+            let secs = e.elapsed_ms / 1000;
+            let ms = e.elapsed_ms % 1000;
+            Line::from(vec![
+                Span::styled(
+                    format!("{secs:3}.{ms:03} "),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(&e.msg),
+            ])
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(lines), inner);
 }

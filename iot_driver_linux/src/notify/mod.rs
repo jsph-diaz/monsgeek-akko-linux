@@ -14,4 +14,6 @@ pub mod daemon;
 #[cfg(feature = "notify")]
 pub mod dbus;
 pub mod keymap;
+#[cfg(feature = "notify")]
+pub mod log;
 pub mod state;
