@@ -966,8 +966,7 @@ fn render_notify_right(f: &mut Frame, app: &App, area: Rect) {
         .constraints([
             Constraint::Length(8), // Preview grid
             Constraint::Length(4), // Sparkline
-            Constraint::Min(4),    // Animation engine + keys
-            Constraint::Length(8), // Daemon log
+            Constraint::Min(4),    // Engine + log (merged)
         ])
         .split(area);
 
@@ -981,7 +980,6 @@ fn render_notify_right(f: &mut Frame, app: &App, area: Rect) {
         0.0,
     );
     render_anim_status(f, app, chunks[2]);
-    render_daemon_log(f, app, chunks[3]);
 }
 
 fn render_anim_status(f: &mut Frame, app: &App, area: Rect) {
@@ -1126,6 +1124,41 @@ fn render_anim_status(f: &mut Frame, app: &App, area: Rect) {
                     Paragraph::new(Line::from(vec![
                         Span::styled(phase_label, Style::default().fg(Color::DarkGray)),
                         Span::styled(keys_str, Style::default().fg(Color::Cyan)),
+                    ])),
+                    Rect::new(inner.x, y, inner.width, 1),
+                );
+                y += 1;
+            }
+        }
+    }
+
+    // ── Daemon log (tail) ──
+    if let Some(ref dlog) = app.notify.daemon_log {
+        let entries = dlog.entries();
+        if !entries.is_empty() && y < max_y {
+            // Separator
+            if y < max_y {
+                f.render_widget(
+                    Paragraph::new("─ log ─").style(Style::default().fg(Color::DarkGray)),
+                    Rect::new(inner.x, y, inner.width, 1),
+                );
+                y += 1;
+            }
+            let visible = (max_y - y) as usize;
+            let start = entries.len().saturating_sub(visible);
+            for e in &entries[start..] {
+                if y >= max_y {
+                    break;
+                }
+                let secs = e.elapsed_ms / 1000;
+                let ms = e.elapsed_ms % 1000;
+                f.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(
+                            format!("{secs:3}.{ms:03} "),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::raw(&e.msg),
                     ])),
                     Rect::new(inner.x, y, inner.width, 1),
                 );
@@ -1287,45 +1320,4 @@ fn render_animation_curve(
             );
         }
     }
-}
-
-fn render_daemon_log(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title("Log");
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let entries = app
-        .notify
-        .daemon_log
-        .as_ref()
-        .map(|l| l.entries())
-        .unwrap_or_default();
-
-    if entries.is_empty() {
-        f.render_widget(
-            Paragraph::new("(no activity)").style(Style::default().fg(Color::DarkGray)),
-            inner,
-        );
-        return;
-    }
-
-    // Show most recent entries that fit
-    let visible = inner.height as usize;
-    let start = entries.len().saturating_sub(visible);
-    let lines: Vec<Line> = entries[start..]
-        .iter()
-        .map(|e| {
-            let secs = e.elapsed_ms / 1000;
-            let ms = e.elapsed_ms % 1000;
-            Line::from(vec![
-                Span::styled(
-                    format!("{secs:3}.{ms:03} "),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::raw(&e.msg),
-            ])
-        })
-        .collect();
-
-    f.render_widget(Paragraph::new(lines), inner);
 }

@@ -209,6 +209,7 @@ pub async fn run_with_cancel(
     // Animation engine state
     let mut slots = AnimSlotManager::new();
     let mut programmed: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut prev_state_count: usize = 0;
 
     while running.load(Ordering::SeqCst) {
         // Wait for either: D-Bus wake signal or timer tick (expiry/waves)
@@ -372,6 +373,13 @@ pub async fn run_with_cancel(
                     timer = tokio::time::interval(new_dur);
                     timer.reset();
                 }
+            }
+
+            // Print state summary when something changed (verbose only)
+            let current_count = store_guard.list().len() + programmed.len();
+            if current_count != prev_state_count {
+                log.print_state(&store_guard.list());
+                prev_state_count = current_count;
             }
 
             if !needs_streaming {

@@ -57,6 +57,23 @@ impl DaemonLog {
         }
     }
 
+    /// Log a summary of active notifications (verbose/CLI only — not stored in ring buffer).
+    pub fn print_state(&self, notifications: &[(u64, String, String, String, i32)]) {
+        if !self.verbose {
+            return;
+        }
+        let elapsed_ms = self.start.elapsed().as_millis() as u64;
+        let secs = elapsed_ms / 1000;
+        let ms = elapsed_ms % 1000;
+        if notifications.is_empty() {
+            eprintln!("[{secs:4}.{ms:03}] (no active notifications)");
+        } else {
+            for (id, key, source, effect, prio) in notifications {
+                eprintln!("[{secs:4}.{ms:03}]   #{id} {effect} on {key} p={prio} ({source})");
+            }
+        }
+    }
+
     /// Read all entries (for TUI rendering). Non-blocking.
     pub fn entries(&self) -> Vec<LogEntry> {
         self.inner
