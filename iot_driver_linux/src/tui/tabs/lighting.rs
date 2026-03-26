@@ -28,19 +28,19 @@ const CUSTOM_COLOR_IDX: usize = 9;
 // ============================================================================
 
 /// Handle input for the lighting tab
-pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyEvent) {
+pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyEvent) -> bool {
     // Handle focus switching first
     if key.kind == KeyEventKind::Press {
         if matches!(key.code, KeyCode::Enter | KeyCode::Esc) {
             if app.lighting_focus == LightingFocus::Picker {
                 app.lighting_focus = LightingFocus::Layout;
-                return;
+                return true;
             }
         }
         if key.code == KeyCode::Char('e') && app.lighting_focus == LightingFocus::Layout {
             app.lighting_focus = LightingFocus::Picker;
             app.lighting_picker_field = 0;
-            return;
+            return true;
         }
     }
 
@@ -51,35 +51,47 @@ pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyEvent) {
 }
 
 /// Handle input when the color picker is focused
-fn handle_picker_input(app: &mut App, key: KeyEvent) {
-    if key.kind != KeyEventKind::Press { return; }
+fn handle_picker_input(app: &mut App, key: KeyEvent) -> bool {
+    if key.kind != KeyEventKind::Press { return false; }
     let (mut r, mut g, mut b) = app.lighting_custom_color;
     let coarse = key.modifiers.contains(KeyModifiers::SHIFT);
 
-    match key.code {
+    let handled = match key.code {
         KeyCode::Left => {
             app.lighting_picker_field = app.lighting_picker_field.saturating_sub(1);
+            true
         }
         KeyCode::Right | KeyCode::Tab => {
             app.lighting_picker_field = (app.lighting_picker_field + 1) % 3;
+            true
         }
-        KeyCode::Up => match app.lighting_picker_field {
-            0 => r = RGB_SPINNER.increment_u8(r, coarse),
-            1 => g = RGB_SPINNER.increment_u8(g, coarse),
-            _ => b = RGB_SPINNER.increment_u8(b, coarse),
-        },
-        KeyCode::Down => match app.lighting_picker_field {
-            0 => r = RGB_SPINNER.decrement_u8(r, coarse),
-            1 => g = RGB_SPINNER.decrement_u8(g, coarse),
-            _ => b = RGB_SPINNER.decrement_u8(b, coarse),
-        },
-        _ => {}
+        KeyCode::Up => {
+            match app.lighting_picker_field {
+                0 => r = RGB_SPINNER.increment_u8(r, coarse),
+                1 => g = RGB_SPINNER.increment_u8(g, coarse),
+                _ => b = RGB_SPINNER.increment_u8(b, coarse),
+            }
+            true
+        }
+        KeyCode::Down => {
+            match app.lighting_picker_field {
+                0 => r = RGB_SPINNER.decrement_u8(r, coarse),
+                1 => g = RGB_SPINNER.decrement_u8(g, coarse),
+                _ => b = RGB_SPINNER.decrement_u8(b, coarse),
+            }
+            true
+        }
+        _ => false,
+    };
+    
+    if handled {
+        app.lighting_custom_color = (r, g, b);
     }
-    app.lighting_custom_color = (r, g, b);
+    handled
 }
 
 /// Handle input when the main layout is focused
-fn handle_layout_input(app: &mut App, key: KeyEvent) {
+fn handle_layout_input(app: &mut App, key: KeyEvent) -> bool {
     use KeyCode::*;
 
     if key.code == Char(' ') {
@@ -93,21 +105,33 @@ fn handle_layout_input(app: &mut App, key: KeyEvent) {
             }
             _ => {}
         }
-        return;
+        return true;
     }
 
-    if key.kind != KeyEventKind::Press { return; }
+    if key.kind != KeyEventKind::Press { return false; }
 
     match key.code {
-        Up => app.lighting_move_up(),
-        Down => app.lighting_move_down(),
-        Left => app.lighting_move_left(),
-        Right => app.lighting_move_right(),
-        Char('s') => app.save_userpic(),
-        Char('r') => app.load_userpic(),
-        Char('c') | Backspace | Delete => app.clear_userpic(),
-        Char('f') => app.fill_userpic(),
-        Char('p') => app.toggle_preview(),
+        Up => { app.lighting_move_up(); true }
+        Down => { app.lighting_move_down(); true }
+        Left => { app.lighting_move_left(); true }
+        Right => { app.lighting_move_right(); true }
+        Char('s') => { app.save_userpic(); true }
+        Char('r') => { app.load_userpic(); true }
+        Char('c') => { app.clear_userpic(); true }
+        Backspace | Delete => {
+            // Special case for clearing single key
+            let pos = app.lighting_cursor_pos;
+            let off = pos * 3;
+            if off + 2 < app.lighting_data.len() {
+                app.lighting_data[off] = 0;
+                app.lighting_data[off + 1] = 0;
+                app.lighting_data[off + 2] = 0;
+            }
+            if app.lighting_preview { app.send_lighting_preview(); }
+            true
+        }
+        Char('f') => { app.fill_userpic(); true }
+        Char('p') => { app.toggle_preview(); true }
         Char('[') => {
             if key.modifiers.contains(KeyModifiers::SHIFT) {
                 app.lighting_slot = app.lighting_slot.saturating_sub(1);
@@ -119,6 +143,7 @@ fn handle_layout_input(app: &mut App, key: KeyEvent) {
                     app.lighting_palette_idx - 1
                 };
             }
+            true
         }
         Char(']') => {
             if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -127,8 +152,9 @@ fn handle_layout_input(app: &mut App, key: KeyEvent) {
             } else {
                 app.lighting_palette_idx = (app.lighting_palette_idx + 1) % LIGHTING_PALETTE.len();
             }
+            true
         }
-        _ => {}
+        _ => false,
     }
 }
 
@@ -254,7 +280,8 @@ impl App {
     pub(in crate::tui) fn send_lighting_preview(&mut self) {
         if let Some(ref kb) = self.keyboard {
             let mut stream_data = vec![0u8; 378];
-            stream_data[..self.lighting_data.len()].copy_from_slice(&self.lighting_data);
+            let len = self.lighting_data.len().min(378);
+            stream_data[..len].copy_from_slice(&self.lighting_data[..len]);
             for page in 0..7 {
                 let start = page * 54;
                 let _ = kb.stream_led_page(page as u8, &stream_data[start..start + 54]);

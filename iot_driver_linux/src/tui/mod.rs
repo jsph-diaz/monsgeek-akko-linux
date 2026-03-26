@@ -1411,6 +1411,10 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
 
                     }
 
+                    if app.tab == 4 && handle_lighting_input(&mut app, key) {
+                        continue;
+                    }
+
                     match key.code {
                         // Help toggle
                         KeyCode::Char('?') | KeyCode::F(1) => {
@@ -1432,9 +1436,6 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                             #[cfg(feature = "notify")]
                             if app.tab == 5 {
                                 handle_notify_input(&mut app, key);
-                            }
-                            if app.tab == 4 {
-                                handle_lighting_input(&mut app, key);
                             }
                             // Other tabs: no-op for now (can add widget focus later)
                         }
@@ -1467,8 +1468,6 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.remap_selected -= 1;
                                     app.sync_binding_editor();
                                 }
-                            } else if app.tab == 4 {
-                                handle_lighting_input(&mut app, key);
                             } else {
                                 #[cfg(feature = "notify")]
                                 if app.tab == 5 {
@@ -1516,8 +1515,6 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.remap_selected += 1;
                                     app.sync_binding_editor();
                                 }
-                            } else if app.tab == 4 {
-                                handle_lighting_input(&mut app, key);
                             } else {
                                 #[cfg(feature = "notify")]
                                 if app.tab == 5 {
@@ -1540,8 +1537,6 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 app.layout_key_left();
                             } else if app.tab == 3 {
                                 // No action for Left in tab 3 list
-                            } else if app.tab == 4 {
-                                handle_lighting_input(&mut app, key);
                             } else {
                                 #[cfg(feature = "notify")]
                                 if app.tab == 5 {
@@ -1612,8 +1607,6 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 }
                             } else if app.tab == 2 && app.trigger_view_mode == TriggerViewMode::Layout {
                                 app.layout_key_right();
-                            } else if app.tab == 4 {
-                                handle_lighting_input(&mut app, key);
                             } else if app.tab == 0 {
                                 let coarse = key.modifiers.contains(KeyModifiers::SHIFT);
                                 match app.info_tags.get(app.selected).copied().unwrap_or(InfoTag::ReadOnly) {
@@ -1650,9 +1643,6 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     InfoTag::SleepDeep24g => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::Deep24g, step); }
                                     _ => {}
                                 }
-                            }
-                            if app.tab == 4 {
-                                handle_lighting_input(&mut app, key);
                             }
                             #[cfg(feature = "notify")]
                             if app.tab == 5 {
@@ -1835,9 +1825,6 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.status_msg = format!("Deselected Key {label}");
                                 }
                             }
-                        }
-                        KeyCode::Char(' ') if app.tab == 4 => {
-                            handle_lighting_input(&mut app, key);
                         }
                         // ── Notify tab input handling ──
                         #[cfg(feature = "notify")]
