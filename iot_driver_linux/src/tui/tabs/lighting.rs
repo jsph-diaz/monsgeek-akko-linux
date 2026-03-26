@@ -5,7 +5,21 @@ use ratatui::{prelude::*, widgets::*};
 use throbber_widgets_tui::Throbber;
 
 use crate::tui::shared::{AsyncResult, LoadState};
+use crate::tui::tabs::depth::get_key_label;
 use crate::tui::App;
+
+/// Color palette for painting
+pub(crate) const LIGHTING_PALETTE: &[(u8, u8, u8, &str)] = &[
+    (255, 0, 0, "Red"),
+    (0, 255, 0, "Green"),
+    (0, 0, 255, "Blue"),
+    (255, 255, 0, "Yellow"),
+    (0, 255, 255, "Cyan"),
+    (255, 0, 255, "Magenta"),
+    (255, 255, 255, "White"),
+    (0, 0, 0, "Black (Off)"),
+    (255, 128, 0, "Orange"),
+];
 
 /// Handle input for the lighting tab
 pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyCode) {
@@ -13,20 +27,16 @@ pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyCode) {
 
     match key {
         Up => {
-            app.lighting_cursor.1 = app.lighting_cursor.1.saturating_sub(1);
+            app.lighting_move_up();
         }
         Down => {
-            if app.lighting_cursor.1 < 5 {
-                app.lighting_cursor.1 += 1;
-            }
+            app.lighting_move_down();
         }
         Left => {
-            app.lighting_cursor.0 = app.lighting_cursor.0.saturating_sub(1);
+            app.lighting_move_left();
         }
         Right => {
-            if app.lighting_cursor.0 < 15 {
-                app.lighting_cursor.0 += 1;
-            }
+            app.lighting_move_right();
         }
         Char(' ') => {
             app.set_pixel_color();
@@ -48,11 +58,54 @@ pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyCode) {
             app.lighting_slot = app.lighting_slot.saturating_sub(1);
             app.load_userpic();
         }
+        // Palette cycling with < and > (using Char(',') and Char('.'))
+        Char(',') | Char('<') => {
+            app.lighting_palette_idx = if app.lighting_palette_idx == 0 {
+                LIGHTING_PALETTE.len() - 1
+            } else {
+                app.lighting_palette_idx - 1
+            };
+        }
+        Char('.') | Char('>') => {
+            app.lighting_palette_idx = (app.lighting_palette_idx + 1) % LIGHTING_PALETTE.len();
+        }
         _ => {}
     }
 }
 
 impl App {
+    /// Navigate up in the 16x6 grid
+    pub(in crate::tui) fn lighting_move_up(&mut self) {
+        let row = self.lighting_cursor_pos % 6;
+        if row > 0 {
+            self.lighting_cursor_pos -= 1;
+        }
+    }
+
+    /// Navigate down in the 16x6 grid
+    pub(in crate::tui) fn lighting_move_down(&mut self) {
+        let row = self.lighting_cursor_pos % 6;
+        if row < 5 {
+            self.lighting_cursor_pos += 1;
+        }
+    }
+
+    /// Navigate left in the 16x6 grid
+    pub(in crate::tui) fn lighting_move_left(&mut self) {
+        let col = self.lighting_cursor_pos / 6;
+        if col > 0 {
+            self.lighting_cursor_pos -= 6;
+        }
+    }
+
+    /// Navigate right in the 16x6 grid
+    pub(in crate::tui) fn lighting_move_right(&mut self) {
+        let col = self.lighting_cursor_pos / 6;
+        if col < 15 {
+            self.lighting_cursor_pos += 6;
+        }
+    }
+
     /// Load userpic for current slot
     pub(in crate::tui) fn load_userpic(&mut self) {
         let Some(keyboard) = self.keyboard.clone() else {
@@ -92,14 +145,15 @@ impl App {
         }
     }
 
-    /// Set current pixel color to main LED color
+    /// Set current pixel color to selected palette color
     pub(in crate::tui) fn set_pixel_color(&mut self) {
-        let (col, row) = self.lighting_cursor;
-        let off = (col as usize * 18) + (row as usize * 3);
+        let pos = self.lighting_cursor_pos;
+        let (pr, pg, pb, _) = LIGHTING_PALETTE[self.lighting_palette_idx];
+        let off = pos * 3;
         if off + 2 < self.lighting_data.len() {
-            self.lighting_data[off] = self.info.led_r;
-            self.lighting_data[off + 1] = self.info.led_g;
-            self.lighting_data[off + 2] = self.info.led_b;
+            self.lighting_data[off] = pr;
+            self.lighting_data[off + 1] = pg;
+            self.lighting_data[off + 2] = pb;
         }
     }
 
@@ -128,113 +182,149 @@ pub(in crate::tui) fn render_lighting(f: &mut Frame, app: &mut App, area: Rect) 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(15), // Grid area
+            Constraint::Length(16), // Grid area (increased for better spacing)
             Constraint::Min(5),    // Controls area
         ])
         .split(area);
 
     // Render 16x6 grid
-    render_userpic_grid(f, app, chunks[0]);
+    render_userpic_layout(f, app, chunks[0]);
 
     // Render controls
     render_lighting_controls(f, app, chunks[1]);
 }
 
-fn render_userpic_grid(f: &mut Frame, app: &App, area: Rect) {
+fn render_userpic_layout(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!("Userpic Slot {} Editor [16x6 Grid]", app.lighting_slot));
+        .title(format!("Keyboard Layout [Userpic Slot {}]", app.lighting_slot));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let key_width = 4u16;
+    // Layout dimensions (matching triggers layout for consistency)
+    let key_width = 5u16; 
     let key_height = 2u16;
 
-    for col in 0..16 {
-        for row in 0..6 {
-            let off = (col as usize * 18) + (row as usize * 3);
-            let r = app.lighting_data[off];
-            let g = app.lighting_data[off + 1];
-            let b = app.lighting_data[off + 2];
+    // Userpic covers the main 16 columns of the matrix (16x6)
+    for pos in 0..96 {
+        let col = pos / 6;
+        let row = pos % 6;
 
-            let x = inner.x + (col as u16 * key_width);
-            let y = inner.y + (row as u16 * key_height);
-
-            if x + key_width > inner.x + inner.width || y + key_height > inner.y + inner.height {
-                continue;
-            }
-
-            let is_selected = app.lighting_cursor == (col as u8, row as u8);
-            let color = Color::Rgb(r, g, b);
-            
-            // Contrast color for border/text
-            let brightness = (r as f32 * 0.299 + g as f32 * 0.587 + b as f32 * 0.114) / 255.0;
-            let contrast = if brightness > 0.5 { Color::Black } else { Color::White };
-
-            let cell_block = Block::default()
-                .borders(Borders::ALL)
-                .border_style(if is_selected {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                })
-                .bg(color);
-
-            let cell_rect = Rect::new(x, y, key_width, key_height);
-            let inner_rect = cell_block.inner(cell_rect);
-            
-            // Draw a small dot or something to show color if it's too dark
-            let label = if is_selected { "X" } else { "" };
-            let p = Paragraph::new(label)
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(contrast).bg(color));
-            
-            f.render_widget(cell_block, cell_rect);
-            f.render_widget(p, inner_rect);
+        // Skip positions outside visible area or empty keys
+        let key_name = get_key_label(app, pos);
+        if key_name.is_empty() || key_name == "?" {
+            continue;
         }
+
+        // Calculate screen position
+        let x = inner.x + (col as u16 * key_width);
+        let y = inner.y + (row as u16 * key_height);
+
+        // Skip if outside area
+        if x + key_width > inner.x + inner.width || y + key_height > inner.y + inner.height {
+            continue;
+        }
+
+        let is_selected = pos == app.lighting_cursor_pos;
+        let off = pos * 3;
+        let r = app.lighting_data[off];
+        let g = app.lighting_data[off + 1];
+        let b = app.lighting_data[off + 2];
+        let color = Color::Rgb(r, g, b);
+
+        // Dynamic contrast for cursor/label
+        let brightness = (r as f32 * 0.299 + g as f32 * 0.587 + b as f32 * 0.114) / 255.0;
+        let contrast = if brightness > 0.5 { Color::Black } else { Color::White };
+
+        let cell_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(if is_selected {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            })
+            .bg(color);
+
+        let cell_rect = Rect::new(x, y, key_width, key_height);
+        let inner_rect = cell_block.inner(cell_rect);
+
+        // Blinking-like effect for cursor: show key label if selected
+        let label = if is_selected { 
+            format!("[\u{2588}]") // cursor indicator
+        } else {
+            key_name.chars().take(3).collect()
+        };
+
+        let p = Paragraph::new(label)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(contrast).bg(color));
+        
+        f.render_widget(cell_block, cell_rect);
+        f.render_widget(p, inner_rect);
     }
 }
 
 fn render_lighting_controls(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Controls");
+        .title("Controls & Palette");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let (col, row) = app.lighting_cursor;
-    let off = (col as usize * 18) + (row as usize * 3);
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ])
+        .split(inner);
+
+    // Left: Status & Selection info
+    let pos = app.lighting_cursor_pos;
+    let key_name = get_key_label(app, pos);
+    let off = pos * 3;
     let r = app.lighting_data[off];
     let g = app.lighting_data[off + 1];
     let b = app.lighting_data[off + 2];
 
-    let lines = vec![
+    let status_lines = vec![
         Line::from(vec![
             Span::raw("Slot: "),
             Span::styled(format!("< {} >", app.lighting_slot), Style::default().fg(Color::Cyan)),
-            Span::raw("  (0-4) [+/- to change]"),
+            Span::raw(" (0-4) [+/-]"),
         ]),
         Line::from(vec![
-            Span::raw("Cursor: "),
-            Span::styled(format!("Col {}, Row {}", col, row), Style::default().fg(Color::Yellow)),
-            Span::raw(format!("  Color: #{:02X}{:02X}{:02X}", r, g, b)),
+            Span::raw("Key:  "),
+            Span::styled(format!("{:<8}", key_name), Style::default().fg(Color::Yellow)),
+            Span::raw(format!("  RGB: #{:02X}{:02X}{:02X}", r, g, b)),
             Span::styled("  \u{2588}".repeat(4), Style::default().fg(Color::Rgb(r, g, b))),
-        ]),
-        Line::from(vec![
-            Span::raw("Main Color: "),
-            Span::styled(
-                format!("#{:02X}{:02X}{:02X}", app.info.led_r, app.info.led_g, app.info.led_b),
-                Style::default().fg(Color::Rgb(app.info.led_r, app.info.led_g, app.info.led_b))
-            ),
-            Span::raw(" [Press Space to paint cursor with this color]"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Arrows: move  Space: paint  s: save to keyboard  r: reload from keyboard  c: clear slot  Tab: next tab",
+            "Arrows: move  Space: paint  s: save  r: reload  c: clear",
             Style::default().fg(Color::DarkGray)
         )),
     ];
+    f.render_widget(Paragraph::new(status_lines), chunks[0]);
 
-    let p = Paragraph::new(lines);
-    f.render_widget(p, inner);
+    // Right: Color Palette
+    let mut palette_lines = vec![Line::from(Span::styled("Color Palette [ < / > ]:", Style::default().add_modifier(Modifier::BOLD)))];
+    
+    let (pr, pg, pb, pname) = LIGHTING_PALETTE[app.lighting_palette_idx];
+    palette_lines.push(Line::from(vec![
+        Span::raw("Active: "),
+        Span::styled(format!("< {} >", pname), Style::default().fg(Color::Rgb(pr, pg, pb)).add_modifier(Modifier::BOLD)),
+    ]));
+
+    // Swatches
+    let mut swatches = vec![Span::raw("  ")];
+    for (i, (sr, sg, sb, _)) in LIGHTING_PALETTE.iter().enumerate() {
+        let is_sel = i == app.lighting_palette_idx;
+        let symbol = if is_sel { "\u{2588}\u{2588}" } else { "\u{2584}\u{2584}" };
+        swatches.push(Span::styled(symbol, Style::default().fg(Color::Rgb(*sr, *sg, *sb))));
+        swatches.push(Span::raw(" "));
+    }
+    palette_lines.push(Line::from(swatches));
+    
+    f.render_widget(Paragraph::new(palette_lines), chunks[1]);
 }

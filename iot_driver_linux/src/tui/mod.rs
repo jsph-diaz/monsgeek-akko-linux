@@ -163,7 +163,8 @@ struct App {
     // Lighting/Userpic tab state
     lighting_slot: u8,
     lighting_data: Vec<u8>, // 288 bytes (16*6*3)
-    lighting_cursor: (u8, u8), // (col, row)
+    lighting_cursor_pos: usize, // index in matrix (0-95)
+    lighting_palette_idx: usize,
 }
 
 impl App {
@@ -257,7 +258,8 @@ impl App {
             // Lighting/Userpic
             lighting_slot: 0,
             lighting_data: vec![0; 288],
-            lighting_cursor: (0, 0),
+            lighting_cursor_pos: 0,
+            lighting_palette_idx: 0,
         };
         (app, result_rx)
     }
