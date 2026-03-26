@@ -360,6 +360,7 @@ pub enum Commands {
     /// Upload or download a userpic image (mode 13, persistent per-key colors)
     Userpic {
         /// Image file to upload (PNG, JPG, etc.) — omit to download
+        #[arg(short, long = "image")]
         file: Option<String>,
         /// Userpic slot (0-4)
         #[arg(short, long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..5))]

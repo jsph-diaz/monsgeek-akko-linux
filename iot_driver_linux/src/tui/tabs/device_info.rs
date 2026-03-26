@@ -6,6 +6,7 @@ use crate::cmd;
 use crate::firmware_api::FirmwareCheckResult;
 use crate::hid::BatteryInfo;
 use crate::power_supply::{find_dongle_battery_power_supply, read_kernel_battery};
+use crate::profile_led::AllDevicesConfig;
 use monsgeek_keyboard::KeyboardOptions as KbOptions;
 use monsgeek_keyboard::{
     led::{speed_from_wire, speed_to_wire},
@@ -135,7 +136,10 @@ impl App {
             let kb = keyboard.clone();
             let tx = tx.clone();
             tokio::spawn(async move {
-                let result = kb.get_led_params().map_err(|e| e.to_string());
+                let result = match (kb.get_profile(), kb.get_led_params()) {
+                    (Ok(p), Ok(params)) => Ok((p, params)),
+                    (Err(e), _) | (_, Err(e)) => Err(e.to_string()),
+                };
                 tx.send(AsyncResult::LedParams(result));
             });
         }
@@ -393,12 +397,14 @@ impl App {
         self.info.led_mode = mode;
         self.send_main_led();
         self.status_msg = format!("LED mode: {}", cmd::led_mode_name(mode));
+        self.save_current_led_config();
     }
 
     pub(in crate::tui) fn set_brightness(&mut self, brightness: u8) {
         self.info.led_brightness = brightness.min(4);
         self.send_main_led();
         self.status_msg = format!("Brightness: {}/4", self.info.led_brightness);
+        self.save_current_led_config();
     }
 
     pub(in crate::tui) fn set_speed(&mut self, speed: u8) {
@@ -406,6 +412,7 @@ impl App {
         self.info.led_speed = speed_from_wire(speed);
         self.send_main_led();
         self.status_msg = format!("Speed: {speed}/4");
+        self.save_current_led_config();
     }
 
     pub(in crate::tui) fn set_profile(&mut self, profile: u8) {
@@ -413,8 +420,27 @@ impl App {
             if keyboard.set_profile(profile).is_ok() {
                 self.info.profile = profile;
                 self.status_msg = format!("Profile {} active", profile + 1);
+
+                // Apply persistent LED settings for this profile
+                let config = AllDevicesConfig::load();
+                if let Some(led) = config.get_profile_led(self.info.device_id, profile) {
+                    self.info.led_mode = led.mode;
+                    self.info.led_brightness = led.brightness;
+                    self.info.led_speed = led.speed;
+                    self.info.led_r = led.r;
+                    self.info.led_g = led.g;
+                    self.info.led_b = led.b;
+                    self.info.led_dazzle = led.dazzle;
+                    self.send_main_led();
+                }
+
                 // Reload device info after profile switch
                 self.load_device_info();
+
+                // FORCE: Immediately mark LED params as Loaded so the background task
+                // we just spawned (which might return OLD hardware state) knows we have
+                // a valid authoritative state already.
+                self.loading.led_params = crate::tui::LoadState::Loaded;
             } else {
                 self.status_msg = "Failed to set profile".to_string();
             }
@@ -427,6 +453,7 @@ impl App {
         self.info.led_b = b;
         self.send_main_led();
         self.status_msg = format!("Color: #{r:02X}{g:02X}{b:02X}");
+        self.save_current_led_config();
     }
 
     pub(in crate::tui) fn toggle_dazzle(&mut self) {
@@ -436,6 +463,7 @@ impl App {
             "Dazzle: {}",
             if self.info.led_dazzle { "ON" } else { "OFF" }
         );
+        self.save_current_led_config();
     }
 
     /// Start hex color input mode

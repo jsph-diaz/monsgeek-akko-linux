@@ -5,13 +5,16 @@ use super::CommandResult;
 /// Run the notification daemon.
 #[cfg(feature = "notify")]
 pub async fn daemon(ctx: &super::CmdCtx, power_budget: u32, verbose: bool) -> CommandResult {
-    let kb = super::led_stream::open_with_patch_check(ctx)?;
+    let kb = super::open_keyboard(ctx)?;
 
-    let patch = kb.get_patch_info()?.unwrap();
-    println!(
-        "Patch: {} v{} (caps=0x{:04X})",
-        patch.name, patch.version, patch.capabilities
-    );
+    if let Ok(Some(patch)) = kb.get_patch_info() {
+        println!(
+            "Patch: {} v{} (caps=0x{:04X})",
+            patch.name, patch.version, patch.capabilities
+        );
+    } else {
+        println!("Running on stock firmware (background profile sync enabled)");
+    }
 
     iot_driver::notify::daemon::run(kb, power_budget, verbose)
         .await

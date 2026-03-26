@@ -19,6 +19,7 @@ pub mod macro_seq;
 pub mod pcap_analyzer;
 pub mod power_supply;
 pub mod profile;
+pub mod profile_led;
 pub mod protocol;
 #[cfg(feature = "screen-capture")]
 pub mod screen_capture;

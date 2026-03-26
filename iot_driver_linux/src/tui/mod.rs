@@ -10,6 +10,7 @@ use shared::*;
 
 use tabs::depth::{get_key_label, render_depth_monitor};
 use tabs::device_info::{render_device_info, HexColorTarget, InfoTag};
+use tabs::lighting::{handle_lighting_input, render_lighting};
 
 use tabs::remaps::{
     render_remaps, text_preview_from_events, BindingEditor, BindingField, BindingType, RemapFocus,
@@ -48,6 +49,7 @@ use crate::hid::BatteryInfo;
 use crate::key_action::KeyAction;
 use crate::keymap::{self, KeyEntry, Layer};
 use crate::power_supply::find_hid_battery_power_supply;
+use crate::profile_led::{AllDevicesConfig, ProfileLedConfig};
 use crate::{cmd, devices, magnetism, FirmwareSettings, TriggerSettings};
 use monsgeek_transport::protocol::matrix;
 
@@ -158,6 +160,10 @@ struct App {
     anim_snapshot_time: Instant, // when the last snapshot was received
     anim_poll_interval: Duration,
     last_anim_poll: Instant,
+    // Lighting/Userpic tab state
+    lighting_slot: u8,
+    lighting_data: Vec<u8>, // 288 bytes (16*6*3)
+    lighting_cursor: (u8, u8), // (col, row)
 }
 
 impl App {
@@ -248,8 +254,35 @@ impl App {
             anim_snapshot_time: Instant::now(),
             anim_poll_interval: Duration::from_secs(1),
             last_anim_poll: Instant::now() - Duration::from_secs(10), // trigger immediate first poll
+            // Lighting/Userpic
+            lighting_slot: 0,
+            lighting_data: vec![0; 288],
+            lighting_cursor: (0, 0),
         };
         (app, result_rx)
+    }
+
+    /// Save current LED configuration to persistent storage
+    pub(in crate::tui) fn save_current_led_config(&self) {
+        if self.info.device_id == 0 {
+            return;
+        }
+
+        let mut config = AllDevicesConfig::load();
+        config.set_profile_led(
+            self.info.device_id,
+            self.info.profile,
+            ProfileLedConfig {
+                mode: self.info.led_mode,
+                brightness: self.info.led_brightness,
+                speed: self.info.led_speed,
+                r: self.info.led_r,
+                g: self.info.led_g,
+                b: self.info.led_b,
+                dazzle: self.info.led_dazzle,
+            },
+        );
+        let _ = config.save();
     }
 
     /// Create a generation-tagged sender for spawning async tasks.
@@ -373,6 +406,10 @@ impl App {
         }
 
         let mut kb = KeyboardInterface::new(flow_transport, key_count, has_magnetism, protocol);
+
+        if let Some(id) = device_id {
+            self.info.device_id = id as u32;
+        }
 
         // Resolve key names: prefer builtin profile, fall back to matrix database.
         let profile = device_id
@@ -811,14 +848,34 @@ impl App {
             AsyncResult::PollingRate(Err(_)) => {
                 self.loading.polling_rate = LoadState::Error;
             }
-            AsyncResult::LedParams(Ok(params)) => {
-                self.info.led_mode = params.mode as u8;
-                self.info.led_brightness = params.brightness;
-                self.info.led_speed = params.speed;
-                self.info.led_dazzle = params.direction == 7; // DAZZLE_ON=7
-                self.info.led_r = params.color.r;
-                self.info.led_g = params.color.g;
-                self.info.led_b = params.color.b;
+            AsyncResult::LedParams(Ok((profile_id, params))) => {
+                // Persistent software profiles take priority over what the keyboard reports
+                let config = AllDevicesConfig::load();
+                if let Some(led) = config.get_profile_led(self.info.device_id, profile_id) {
+                    // Only update current display if this result matches the currently active profile
+                    if profile_id == self.info.profile {
+                        self.info.led_mode = led.mode;
+                        self.info.led_brightness = led.brightness;
+                        self.info.led_speed = led.speed;
+                        self.info.led_r = led.r;
+                        self.info.led_g = led.g;
+                        self.info.led_b = led.b;
+                        self.info.led_dazzle = led.dazzle;
+                    }
+                } else {
+                    // If no software profile exists, use the hardware's values
+                    if profile_id == self.info.profile {
+                        self.info.led_mode = params.mode as u8;
+                        self.info.led_brightness = params.brightness;
+                        self.info.led_speed = params.speed;
+                        self.info.led_dazzle = params.direction == 7; // DAZZLE_ON=7
+                        self.info.led_r = params.color.r;
+                        self.info.led_g = params.color.g;
+                        self.info.led_b = params.color.b;
+                        // Save this initial state as our baseline
+                        self.save_current_led_config();
+                    }
+                }
                 self.loading.led_params = LoadState::Loaded;
             }
             AsyncResult::LedParams(Err(_)) => {
@@ -939,6 +996,20 @@ impl App {
                 self.loading.macros = LoadState::Error;
                 self.status_msg = "Failed to load macros".to_string();
             }
+            AsyncResult::Userpic(slot, result) => {
+                if slot == self.lighting_slot {
+                    match result {
+                        Ok(data) => {
+                            self.lighting_data = data;
+                            self.loading.userpic = LoadState::Loaded;
+                        }
+                        Err(e) => {
+                            self.loading.userpic = LoadState::Error;
+                            self.status_msg = format!("Failed to load userpic: {e}");
+                        }
+                    }
+                }
+            }
             AsyncResult::SetComplete(field, Ok(())) => {
                 self.status_msg = format!("{field} updated");
                 // Reload remaps after remap operations
@@ -1014,24 +1085,25 @@ impl App {
     }
 
     /// Number of tabs (depends on feature flags).
-    fn tab_count(&self) -> usize {
+    fn num_tabs(&self) -> usize {
         #[cfg(feature = "notify")]
         {
-            5
+            6
         }
         #[cfg(not(feature = "notify"))]
         {
-            4
+            5
         }
     }
 
     /// Tab names for display.
     fn tab_names(&self) -> Vec<&'static str> {
-        let mut names = vec!["Device Info", "Key Depth", "Triggers", "Remaps"];
+        let mut names = vec!["Device Info", "Key Depth", "Triggers", "Remaps", "Lighting"];
         #[cfg(feature = "notify")]
         names.push("Notify");
         names
     }
+
 
     /// Auto-load data when entering a tab.
     fn auto_load_tab(&mut self) {
@@ -1039,9 +1111,11 @@ impl App {
             self.load_triggers();
         } else if self.tab == 3 && self.loading.remaps == LoadState::NotLoaded {
             self.load_remaps();
+        } else if self.tab == 4 && self.loading.userpic == LoadState::NotLoaded {
+            self.load_userpic();
         }
         #[cfg(feature = "notify")]
-        if self.tab == 4 && self.notify.effects.is_none() {
+        if self.tab == 5 && self.notify.effects.is_none() {
             self.load_notify_effects();
         }
     }
@@ -1294,7 +1368,7 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                         continue;
                     }
 
-                    // Alt-1..5 tab shortcuts
+                    // Alt-1..6 tab shortcuts
                     if key.modifiers.contains(crossterm::event::KeyModifiers::ALT) {
                         let tab_idx = match key.code {
                             KeyCode::Char('1') => Some(0),
@@ -1302,18 +1376,20 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                             KeyCode::Char('3') => Some(2),
                             KeyCode::Char('4') => Some(3),
                             KeyCode::Char('5') => Some(4),
+                            KeyCode::Char('6') => Some(5),
                             _ => None,
                         };
                         if let Some(idx) = tab_idx {
-                            if idx < app.tab_count() {
-                                app.tab = idx;
-                                app.selected = 0;
-                                app.trigger_scroll = 0;
-                                app.scroll_state = ScrollViewState::new();
-                                app.auto_load_tab();
-                            }
-                            continue;
+                           if idx < app.num_tabs() {
+                               app.tab = idx;
+                               app.selected = 0;
+                               app.trigger_scroll = 0;
+                               app.scroll_state = ScrollViewState::new();
+                               app.auto_load_tab();
+                           }
+                           continue;
                         }
+
                     }
 
                     match key.code {
@@ -1324,7 +1400,7 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                         KeyCode::Char('q') => break,
                         KeyCode::Esc => {
                             #[cfg(feature = "notify")]
-                            if app.tab == 4 && app.notify.focus != NotifyFocus::EffectList {
+                            if app.tab == 5 && app.notify.focus != NotifyFocus::EffectList {
                                 handle_notify_input(&mut app, key.code);
                             } else {
                                 break;
@@ -1335,8 +1411,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                         // Tab/BackTab: navigate within current tab
                         KeyCode::Tab | KeyCode::BackTab => {
                             #[cfg(feature = "notify")]
-                            if app.tab == 4 {
+                            if app.tab == 5 {
                                 handle_notify_input(&mut app, key.code);
+                            }
+                            if app.tab == 4 {
+                                handle_lighting_input(&mut app, key.code);
                             }
                             // Other tabs: no-op for now (can add widget focus later)
                         }
@@ -1369,9 +1448,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.remap_selected -= 1;
                                     app.sync_binding_editor();
                                 }
+                            } else if app.tab == 4 {
+                                handle_lighting_input(&mut app, key.code);
                             } else {
                                 #[cfg(feature = "notify")]
-                                if app.tab == 4 {
+                                if app.tab == 5 {
                                     handle_notify_input(&mut app, key.code);
                                 } else if app.selected > 0 {
                                     app.selected -= 1;
@@ -1416,9 +1497,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.remap_selected += 1;
                                     app.sync_binding_editor();
                                 }
+                            } else if app.tab == 4 {
+                                handle_lighting_input(&mut app, key.code);
                             } else {
                                 #[cfg(feature = "notify")]
-                                if app.tab == 4 {
+                                if app.tab == 5 {
                                     handle_notify_input(&mut app, key.code);
                                 } else if app.selected < app.info_tags.len().saturating_sub(1) {
                                     app.selected += 1;
@@ -1473,8 +1556,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     _ => {}
                                 }
                             }
-                            #[cfg(feature = "notify")]
                             if app.tab == 4 {
+                                handle_lighting_input(&mut app, key.code);
+                            }
+                            #[cfg(feature = "notify")]
+                            if app.tab == 5 {
                                 handle_notify_input(&mut app, key.code);
                             }
                         }
@@ -1542,8 +1628,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     _ => {}
                                 }
                             }
-                            #[cfg(feature = "notify")]
                             if app.tab == 4 {
+                                handle_lighting_input(&mut app, key.code);
+                            }
+                            #[cfg(feature = "notify")]
+                            if app.tab == 5 {
                                 handle_notify_input(&mut app, key.code);
                             }
                         }
@@ -1562,6 +1651,9 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 app.load_options(); // Options are on tab 0
                                 if app.tab == 2 { app.load_triggers(); }
                                 else if app.tab == 3 { app.load_remaps(); }
+                                else if app.tab == 4 { app.load_userpic(); }
+                                #[cfg(feature = "notify")]
+                                if app.tab == 5 { app.load_notify_effects(); }
                             }
                         }
                         KeyCode::Enter if app.tab == 0 => {
@@ -1720,9 +1812,12 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 }
                             }
                         }
+                        KeyCode::Char(' ') if app.tab == 4 => {
+                            handle_lighting_input(&mut app, key.code);
+                        }
                         // ── Notify tab input handling ──
                         #[cfg(feature = "notify")]
-                        _ if app.tab == 4 => {
+                        _ if app.tab == 5 => {
                             handle_notify_input(&mut app, key.code);
                         }
                         _ => {}
@@ -1874,7 +1969,7 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                 #[cfg(feature = "notify")]
                 if app.tab != last_tab {
                     last_tab = app.tab;
-                    let ms = if app.tab == 4 { 16 } else { 100 };
+                    let ms = if app.tab == 4 || app.tab == 5 { 16 } else { 100 };
                     tick_interval = tokio::time::interval(Duration::from_millis(ms));
                     tick_interval.reset();
                 }
@@ -1973,8 +2068,9 @@ fn ui(f: &mut Frame, app: &mut App) {
         1 => render_depth_monitor(f, app, chunks[2]),
         2 => render_trigger_settings(f, app, chunks[2]),
         3 => render_remaps(f, app, chunks[2]),
+        4 => render_lighting(f, app, chunks[2]),
         #[cfg(feature = "notify")]
-        4 => render_notify(f, app, chunks[2]),
+        5 => render_notify(f, app, chunks[2]),
         _ => {}
     }
 

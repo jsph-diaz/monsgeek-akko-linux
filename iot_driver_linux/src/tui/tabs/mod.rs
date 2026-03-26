@@ -2,7 +2,7 @@
 
 pub(super) mod depth;
 pub(super) mod device_info;
-#[cfg(feature = "notify")]
+pub(super) mod lighting;
 pub(super) mod notify;
 pub(super) mod remaps;
 pub(super) mod triggers;

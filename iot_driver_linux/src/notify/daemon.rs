@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+use crate::profile_led::AllDevicesConfig;
 use super::dbus::{NotifyInterface, SharedStore};
 use super::keymap::MATRIX_LEN;
 use super::state::{self, NotificationStore};
@@ -211,11 +212,38 @@ pub async fn run_with_cancel(
     let mut programmed: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut prev_state_count: usize = 0;
 
+    // Subscribe to keyboard events for background profile sync
+    let mut event_rx = kb.subscribe_events();
+    let device_id = kb.get_device_id().unwrap_or(0);
+
     while running.load(Ordering::SeqCst) {
-        // Wait for either: D-Bus wake signal or timer tick (expiry/waves)
+        // Wait for either: D-Bus wake signal, timer tick, or hardware event
         tokio::select! {
             _ = wake.notified() => {}
             _ = timer.tick() => {}
+            Ok(ts_event) = async {
+                if let Some(ref mut rx) = event_rx {
+                    rx.recv().await
+                } else {
+                    futures::future::pending().await
+                }
+            } => {
+                if let monsgeek_keyboard::VendorEvent::ProfileChange { profile } = ts_event.event {
+                    info!("Profile change detected: {} → applying persistent lighting", profile + 1);
+                    let config = AllDevicesConfig::load();
+                    if let Some(led) = config.get_profile_led(device_id, profile) {
+                        let _ = kb.set_led(
+                            led.mode,
+                            led.brightness,
+                            led.speed,
+                            led.r,
+                            led.g,
+                            led.b,
+                            led.dazzle,
+                        );
+                    }
+                }
+            }
         }
 
         let mut store_guard = store.lock().await;

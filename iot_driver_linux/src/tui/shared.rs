@@ -246,36 +246,37 @@ pub(crate) struct LoadingStates {
     // Other tabs
     pub triggers: LoadState, // tab 3
     pub options: LoadState,  // tab 4
-    pub remaps: LoadState,   // tab 5 (remap list)
-    pub macros: LoadState,   // macro slots (loaded from remap tab)
-}
+    pub remaps:   LoadState,   // tab 5 (remap list)
+    pub macros:   LoadState,   // macro slots (loaded from remap tab)
+    pub userpic:  LoadState,   // tab 6 (lighting/userpic)
+    }
 
-/// Macro slot data
-#[derive(Debug, Clone, Default)]
-pub(crate) struct MacroSlot {
+    /// Macro slot data
+    #[derive(Debug, Clone, Default)]
+    pub(crate) struct MacroSlot {
     pub events: Vec<MacroEvent>,
     pub repeat_count: u16,
     pub text_preview: String,
-}
+    }
 
-/// Single macro event
-#[derive(Debug, Clone)]
-pub(crate) struct MacroEvent {
+    /// Single macro event
+    #[derive(Debug, Clone)]
+    pub(crate) struct MacroEvent {
     pub keycode: u8,
     pub is_down: bool,
     pub delay_ms: u16,
-}
+    }
 
-/// Async result from background keyboard operations
-/// These are sent from spawned tasks to the main event loop
-#[allow(dead_code)] // Macros and SetComplete reserved for future use
-pub(crate) enum AsyncResult {
+    /// Async result from background keyboard operations
+    /// These are sent from spawned tasks to the main event loop
+    #[allow(dead_code)] // Macros and SetComplete reserved for future use
+    pub(crate) enum AsyncResult {
     // Device info results
     DeviceIdAndVersion(Result<(u32, monsgeek_keyboard::FirmwareVersion), String>),
     Profile(Result<u8, String>),
     Debounce(Result<u8, String>),
     PollingRate(Result<u16, String>),
-    LedParams(Result<LedParams, String>),
+    LedParams(Result<(u8, LedParams), String>),
     SideLedParams(Result<LedParams, String>),
     KbOptions(Result<KbOptions, String>),
     Precision(Result<Precision, String>),
@@ -288,6 +289,7 @@ pub(crate) enum AsyncResult {
     Options(Result<KbOptions, String>),
     Remaps(Result<Vec<KeyEntry>, String>),
     Macros(Result<Vec<MacroSlot>, String>),
+    Userpic(u8, Result<Vec<u8>, String>), // (slot, data)
     // Battery status (from keyboard API)
     Battery(Result<BatteryInfo, String>),
     // Operation completion (for set operations)

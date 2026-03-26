@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use monsgeek_keyboard::{led::speed_from_wire, VendorEvent};
 
+use crate::profile_led::AllDevicesConfig;
 use super::super::shared::{DepthViewMode, DEPTH_HISTORY_LEN};
 use super::super::App;
 
@@ -374,6 +375,27 @@ impl App {
             VendorEvent::ProfileChange { profile } => {
                 self.info.profile = profile;
                 self.status_msg = format!("Profile {} (via Fn key)", profile + 1);
+
+                // Apply persistent LED settings for this profile
+                if let Some(ref kb) = self.keyboard {
+                    let config = AllDevicesConfig::load();
+                    if let Some(led) = config.get_profile_led(self.info.device_id, profile) {
+                        let kb = std::sync::Arc::clone(kb);
+                        let led = led.clone();
+                        // Run set_led in background to not block TUI events
+                        tokio::spawn(async move {
+                            let _ = kb.set_led(
+                                led.mode,
+                                led.brightness,
+                                led.speed,
+                                led.r,
+                                led.g,
+                                led.b,
+                                led.dazzle,
+                            );
+                        });
+                    }
+                }
             }
             VendorEvent::LedEffectMode { effect_id } => {
                 self.info.led_mode = effect_id;

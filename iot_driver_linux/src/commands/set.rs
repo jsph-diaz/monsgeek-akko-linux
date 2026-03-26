@@ -1,6 +1,7 @@
 //! Set (write) command handlers.
 
 use super::CommandResult;
+use iot_driver::profile_led::{AllDevicesConfig, ProfileLedConfig};
 use iot_driver::protocol::{cmd, polling_rate};
 use monsgeek_keyboard::{KeyboardInterface, PollingRate, SleepTimeSettings};
 use std::io::{self, Write};
@@ -8,7 +9,25 @@ use std::io::{self, Write};
 /// Set active profile
 pub fn set_profile(keyboard: &KeyboardInterface, profile: u8) -> CommandResult {
     match keyboard.set_profile(profile) {
-        Ok(_) => println!("Profile set to {profile}"),
+        Ok(_) => {
+            println!("Profile set to {profile}");
+
+            // Apply persistent LED settings for this profile
+            if let Ok(device_id) = keyboard.get_device_id() {
+                let config = AllDevicesConfig::load();
+                if let Some(led) = config.get_profile_led(device_id, profile) {
+                    let _ = keyboard.set_led(
+                        led.mode,
+                        led.brightness,
+                        led.speed,
+                        led.r,
+                        led.g,
+                        led.b,
+                        led.dazzle,
+                    );
+                }
+            }
+        }
         Err(e) => eprintln!("Failed to set profile: {e}"),
     }
     Ok(())
@@ -59,16 +78,38 @@ pub fn set_led(
         .unwrap_or_else(|| mode.parse().unwrap_or(1));
 
     match keyboard.set_led(mode_num, brightness, speed, r, g, b, false) {
-        Ok(_) => println!(
-            "LED set: mode={} ({}) brightness={} speed={} color=#{:02X}{:02X}{:02X}",
-            mode_num,
-            cmd::led_mode_name(mode_num),
-            brightness,
-            speed,
-            r,
-            g,
-            b
-        ),
+        Ok(_) => {
+            println!(
+                "LED set: mode={} ({}) brightness={} speed={} color=#{:02X}{:02X}{:02X}",
+                mode_num,
+                cmd::led_mode_name(mode_num),
+                brightness,
+                speed,
+                r,
+                g,
+                b
+            );
+
+            // Save to persistent config
+            if let (Ok(device_id), Ok(profile)) = (keyboard.get_device_id(), keyboard.get_profile())
+            {
+                let mut config = AllDevicesConfig::load();
+                config.set_profile_led(
+                    device_id,
+                    profile,
+                    ProfileLedConfig {
+                        mode: mode_num,
+                        brightness,
+                        speed,
+                        r,
+                        g,
+                        b,
+                        dazzle: false,
+                    },
+                );
+                let _ = config.save();
+            }
+        }
         Err(e) => eprintln!("Failed to set LED: {e}"),
     }
     Ok(())
