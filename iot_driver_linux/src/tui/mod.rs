@@ -167,6 +167,16 @@ struct App {
     lighting_palette_idx: usize,
     lighting_preview: bool,
     lighting_is_painting: bool,
+    lighting_focus: LightingFocus,
+    lighting_picker_field: u8, // 0=R, 1=G, 2=B
+    lighting_custom_color: (u8, u8, u8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(in crate::tui) enum LightingFocus {
+    #[default]
+    Layout,
+    Picker,
 }
 
 impl App {
@@ -264,6 +274,9 @@ impl App {
             lighting_palette_idx: 0,
             lighting_preview: false,
             lighting_is_painting: false,
+            lighting_focus: LightingFocus::default(),
+            lighting_picker_field: 0,
+            lighting_custom_color: (255, 255, 255),
         };
         (app, result_rx)
     }
