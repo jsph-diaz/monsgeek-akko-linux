@@ -2,7 +2,7 @@
 //
 // All notify-specific types, rendering, and input handling.
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{prelude::*, widgets::*};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -166,7 +166,11 @@ fn extract_var_default(def: &EffectDef, var_name: &str) -> Option<String> {
 // Input Handling
 // ============================================================================
 
-pub(in crate::tui) fn handle_notify_input(app: &mut App, key: KeyCode) {
+pub(in crate::tui) fn handle_notify_input(app: &mut App, key: KeyEvent) {
+    if key.kind != KeyEventKind::Press {
+        return;
+    }
+    let key = key.code;
     use KeyCode::*;
 
     // Global notify hotkeys (work from any focus, unless editing)

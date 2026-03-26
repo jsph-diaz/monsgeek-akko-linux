@@ -165,6 +165,8 @@ struct App {
     lighting_data: Vec<u8>, // 288 bytes (16*6*3)
     lighting_cursor_pos: usize, // index in matrix (0-95)
     lighting_palette_idx: usize,
+    lighting_preview: bool,
+    lighting_is_painting: bool,
 }
 
 impl App {
@@ -260,6 +262,8 @@ impl App {
             lighting_data: vec![0; 288],
             lighting_cursor_pos: 0,
             lighting_palette_idx: 0,
+            lighting_preview: false,
+            lighting_is_painting: false,
         };
         (app, result_rx)
     }
@@ -1403,7 +1407,7 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                         KeyCode::Esc => {
                             #[cfg(feature = "notify")]
                             if app.tab == 5 && app.notify.focus != NotifyFocus::EffectList {
-                                handle_notify_input(&mut app, key.code);
+                                handle_notify_input(&mut app, key);
                             } else {
                                 break;
                             }
@@ -1414,10 +1418,10 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                         KeyCode::Tab | KeyCode::BackTab => {
                             #[cfg(feature = "notify")]
                             if app.tab == 5 {
-                                handle_notify_input(&mut app, key.code);
+                                handle_notify_input(&mut app, key);
                             }
                             if app.tab == 4 {
-                                handle_lighting_input(&mut app, key.code);
+                                handle_lighting_input(&mut app, key);
                             }
                             // Other tabs: no-op for now (can add widget focus later)
                         }
@@ -1451,11 +1455,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.sync_binding_editor();
                                 }
                             } else if app.tab == 4 {
-                                handle_lighting_input(&mut app, key.code);
+                                handle_lighting_input(&mut app, key);
                             } else {
                                 #[cfg(feature = "notify")]
                                 if app.tab == 5 {
-                                    handle_notify_input(&mut app, key.code);
+                                    handle_notify_input(&mut app, key);
                                 } else if app.selected > 0 {
                                     app.selected -= 1;
                                 }
@@ -1500,11 +1504,11 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                     app.sync_binding_editor();
                                 }
                             } else if app.tab == 4 {
-                                handle_lighting_input(&mut app, key.code);
+                                handle_lighting_input(&mut app, key);
                             } else {
                                 #[cfg(feature = "notify")]
                                 if app.tab == 5 {
-                                    handle_notify_input(&mut app, key.code);
+                                    handle_notify_input(&mut app, key);
                                 } else if app.selected < app.info_tags.len().saturating_sub(1) {
                                     app.selected += 1;
                                 }
@@ -1521,49 +1525,51 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 }
                             } else if app.tab == 2 && app.trigger_view_mode == TriggerViewMode::Layout {
                                 app.layout_key_left();
-                            } else if app.tab == 0 {
-                                let coarse = key.modifiers.contains(KeyModifiers::SHIFT);
-                                match app.info_tags.get(app.selected).copied().unwrap_or(InfoTag::ReadOnly) {
-                                    InfoTag::Profile => app.set_profile(PROFILE_SPINNER.decrement_u8(app.info.profile, coarse)),
-                                    InfoTag::Debounce => app.set_debounce(DEBOUNCE_SPINNER.decrement_u8(app.info.debounce, coarse)),
-                                    InfoTag::PollingRate => app.cycle_polling_rate(1), // higher index = lower rate
-                                    InfoTag::LedMode => app.set_led_mode(app.info.led_mode.saturating_sub(1)),
-                                    InfoTag::LedBrightness => app.set_brightness(BRIGHTNESS_SPINNER.decrement_u8(app.info.led_brightness, coarse)),
-                                    InfoTag::LedSpeed => {
-                                        let current = speed_to_wire(app.info.led_speed);
-                                        app.set_speed(SPEED_SPINNER.decrement_u8(current, coarse));
+                            } else if app.tab == 3 {
+                                // No action for Left in tab 3 list
+                            } else if app.tab == 4 {
+                                handle_lighting_input(&mut app, key);
+                            } else {
+                                #[cfg(feature = "notify")]
+                                if app.tab == 5 {
+                                    handle_notify_input(&mut app, key);
+                                } else if app.tab == 0 {
+                                    let coarse = key.modifiers.contains(KeyModifiers::SHIFT);
+                                    match app.info_tags.get(app.selected).copied().unwrap_or(InfoTag::ReadOnly) {
+                                        InfoTag::Profile => app.set_profile(PROFILE_SPINNER.decrement_u8(app.info.profile, coarse)),
+                                        InfoTag::Debounce => app.set_debounce(DEBOUNCE_SPINNER.decrement_u8(app.info.debounce, coarse)),
+                                        InfoTag::PollingRate => app.cycle_polling_rate(1), // higher index = lower rate
+                                        InfoTag::LedMode => app.set_led_mode(app.info.led_mode.saturating_sub(1)),
+                                        InfoTag::LedBrightness => app.set_brightness(BRIGHTNESS_SPINNER.decrement_u8(app.info.led_brightness, coarse)),
+                                        InfoTag::LedSpeed => {
+                                            let current = speed_to_wire(app.info.led_speed);
+                                            app.set_speed(SPEED_SPINNER.decrement_u8(current, coarse));
+                                        }
+                                        InfoTag::LedRed => { let r = RGB_SPINNER.decrement_u8(app.info.led_r, coarse); app.set_color(r, app.info.led_g, app.info.led_b); }
+                                        InfoTag::LedGreen => { let g = RGB_SPINNER.decrement_u8(app.info.led_g, coarse); app.set_color(app.info.led_r, g, app.info.led_b); }
+                                        InfoTag::LedBlue => { let b = RGB_SPINNER.decrement_u8(app.info.led_b, coarse); app.set_color(app.info.led_r, app.info.led_g, b); }
+                                        InfoTag::LedDazzle => app.toggle_dazzle(),
+                                        InfoTag::SideMode => app.set_side_mode(app.info.side_mode.saturating_sub(1)),
+                                        InfoTag::SideBrightness => app.set_side_brightness(BRIGHTNESS_SPINNER.decrement_u8(app.info.side_brightness, coarse)),
+                                        InfoTag::SideSpeed => {
+                                            let current = speed_to_wire(app.info.side_speed);
+                                            app.set_side_speed(SPEED_SPINNER.decrement_u8(current, coarse));
+                                        }
+                                        InfoTag::SideRed => { let r = RGB_SPINNER.decrement_u8(app.info.side_r, coarse); app.set_side_color(r, app.info.side_g, app.info.side_b); }
+                                        InfoTag::SideGreen => { let g = RGB_SPINNER.decrement_u8(app.info.side_g, coarse); app.set_side_color(app.info.side_r, g, app.info.side_b); }
+                                        InfoTag::SideBlue => { let b = RGB_SPINNER.decrement_u8(app.info.side_b, coarse); app.set_side_color(app.info.side_r, app.info.side_g, b); }
+                                        InfoTag::SideDazzle => app.toggle_side_dazzle(),
+                                        InfoTag::FnLayer => { if let Some(ref opts) = app.options.clone() { app.set_fn_layer(FN_LAYER_SPINNER.decrement_u8(opts.fn_layer, coarse)); } }
+                                        InfoTag::WasdSwap => app.toggle_wasd_swap(),
+                                        InfoTag::AntiMistouch => app.toggle_anti_mistouch(),
+                                        InfoTag::RtStability => { if let Some(ref opts) = app.options.clone() { app.set_rt_stability(RT_STABILITY_SPINNER.decrement_u8(opts.rt_stability, coarse)); } }
+                                        InfoTag::SleepIdleBt => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::IdleBt, -step); }
+                                        InfoTag::SleepIdle24g => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::Idle24g, -step); }
+                                        InfoTag::SleepDeepBt => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::DeepBt, -step); }
+                                        InfoTag::SleepDeep24g => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::Deep24g, -step); }
+                                        _ => {}
                                     }
-                                    InfoTag::LedRed => { let r = RGB_SPINNER.decrement_u8(app.info.led_r, coarse); app.set_color(r, app.info.led_g, app.info.led_b); }
-                                    InfoTag::LedGreen => { let g = RGB_SPINNER.decrement_u8(app.info.led_g, coarse); app.set_color(app.info.led_r, g, app.info.led_b); }
-                                    InfoTag::LedBlue => { let b = RGB_SPINNER.decrement_u8(app.info.led_b, coarse); app.set_color(app.info.led_r, app.info.led_g, b); }
-                                    InfoTag::LedDazzle => app.toggle_dazzle(),
-                                    InfoTag::SideMode => app.set_side_mode(app.info.side_mode.saturating_sub(1)),
-                                    InfoTag::SideBrightness => app.set_side_brightness(BRIGHTNESS_SPINNER.decrement_u8(app.info.side_brightness, coarse)),
-                                    InfoTag::SideSpeed => {
-                                        let current = speed_to_wire(app.info.side_speed);
-                                        app.set_side_speed(SPEED_SPINNER.decrement_u8(current, coarse));
-                                    }
-                                    InfoTag::SideRed => { let r = RGB_SPINNER.decrement_u8(app.info.side_r, coarse); app.set_side_color(r, app.info.side_g, app.info.side_b); }
-                                    InfoTag::SideGreen => { let g = RGB_SPINNER.decrement_u8(app.info.side_g, coarse); app.set_side_color(app.info.side_r, g, app.info.side_b); }
-                                    InfoTag::SideBlue => { let b = RGB_SPINNER.decrement_u8(app.info.side_b, coarse); app.set_side_color(app.info.side_r, app.info.side_g, b); }
-                                    InfoTag::SideDazzle => app.toggle_side_dazzle(),
-                                    InfoTag::FnLayer => { if let Some(ref opts) = app.options.clone() { app.set_fn_layer(FN_LAYER_SPINNER.decrement_u8(opts.fn_layer, coarse)); } }
-                                    InfoTag::WasdSwap => app.toggle_wasd_swap(),
-                                    InfoTag::AntiMistouch => app.toggle_anti_mistouch(),
-                                    InfoTag::RtStability => { if let Some(ref opts) = app.options.clone() { app.set_rt_stability(RT_STABILITY_SPINNER.decrement_u8(opts.rt_stability, coarse)); } }
-                                    InfoTag::SleepIdleBt => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::IdleBt, -step); }
-                                    InfoTag::SleepIdle24g => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::Idle24g, -step); }
-                                    InfoTag::SleepDeepBt => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::DeepBt, -step); }
-                                    InfoTag::SleepDeep24g => { let step = if coarse { SLEEP_TIME_SPINNER.step_coarse } else { SLEEP_TIME_SPINNER.step } as i32; app.update_sleep_time(SleepField::Deep24g, -step); }
-                                    _ => {}
                                 }
-                            }
-                            if app.tab == 4 {
-                                handle_lighting_input(&mut app, key.code);
-                            }
-                            #[cfg(feature = "notify")]
-                            if app.tab == 5 {
-                                handle_notify_input(&mut app, key.code);
                             }
                         }
                         KeyCode::Right | KeyCode::Char('l') => {
@@ -1593,6 +1599,8 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 }
                             } else if app.tab == 2 && app.trigger_view_mode == TriggerViewMode::Layout {
                                 app.layout_key_right();
+                            } else if app.tab == 4 {
+                                handle_lighting_input(&mut app, key);
                             } else if app.tab == 0 {
                                 let coarse = key.modifiers.contains(KeyModifiers::SHIFT);
                                 match app.info_tags.get(app.selected).copied().unwrap_or(InfoTag::ReadOnly) {
@@ -1631,12 +1639,13 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                                 }
                             }
                             if app.tab == 4 {
-                                handle_lighting_input(&mut app, key.code);
+                                handle_lighting_input(&mut app, key);
                             }
                             #[cfg(feature = "notify")]
                             if app.tab == 5 {
-                                handle_notify_input(&mut app, key.code);
+                                handle_notify_input(&mut app, key);
                             }
+
                         }
                         KeyCode::Char('r') => {
                             // Re-check battery/idle state before refresh
@@ -1815,12 +1824,12 @@ pub async fn run(device_selector: Option<String>) -> io::Result<()> {
                             }
                         }
                         KeyCode::Char(' ') if app.tab == 4 => {
-                            handle_lighting_input(&mut app, key.code);
+                            handle_lighting_input(&mut app, key);
                         }
                         // ── Notify tab input handling ──
                         #[cfg(feature = "notify")]
                         _ if app.tab == 5 => {
-                            handle_notify_input(&mut app, key.code);
+                            handle_notify_input(&mut app, key);
                         }
                         _ => {}
                     }

@@ -1,6 +1,6 @@
 // Lighting tab (Tab 6) — Userpic editor (Mode 13)
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{prelude::*, widgets::*};
 use throbber_widgets_tui::Throbber;
 
@@ -22,10 +22,30 @@ pub(crate) const LIGHTING_PALETTE: &[(u8, u8, u8, &str)] = &[
 ];
 
 /// Handle input for the lighting tab
-pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyCode) {
+pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyEvent) {
     use KeyCode::*;
 
-    match key {
+    // Handle space key press/release for continuous painting
+    if key.code == Char(' ') {
+        match key.kind {
+            KeyEventKind::Press => {
+                app.lighting_is_painting = true;
+                app.set_pixel_color();
+            }
+            KeyEventKind::Release => {
+                app.lighting_is_painting = false;
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // Only handle press events for other keys
+    if key.kind != KeyEventKind::Press {
+        return;
+    }
+
+    match key.code {
         Up => {
             app.lighting_move_up();
         }
@@ -38,17 +58,20 @@ pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyCode) {
         Right => {
             app.lighting_move_right();
         }
-        Char(' ') => {
-            app.set_pixel_color();
-        }
         Char('s') => {
             app.save_userpic();
         }
         Char('r') => {
             app.load_userpic();
         }
-        Char('c') => {
+        Char('c') | Backspace | Delete => {
             app.clear_userpic();
+        }
+        Char('f') => {
+            app.fill_userpic();
+        }
+        Char('p') => {
+            app.toggle_preview();
         }
         Char('+') | Char('=') => {
             app.lighting_slot = (app.lighting_slot + 1).min(4);
@@ -58,7 +81,7 @@ pub(in crate::tui) fn handle_lighting_input(app: &mut App, key: KeyCode) {
             app.lighting_slot = app.lighting_slot.saturating_sub(1);
             app.load_userpic();
         }
-        // Palette cycling with < and > (using Char(',') and Char('.'))
+        // Palette cycling with < and >
         Char(',') | Char('<') => {
             app.lighting_palette_idx = if app.lighting_palette_idx == 0 {
                 LIGHTING_PALETTE.len() - 1
@@ -79,6 +102,9 @@ impl App {
         let row = self.lighting_cursor_pos % 6;
         if row > 0 {
             self.lighting_cursor_pos -= 1;
+            if self.lighting_is_painting {
+                self.set_pixel_color();
+            }
         }
     }
 
@@ -87,6 +113,9 @@ impl App {
         let row = self.lighting_cursor_pos % 6;
         if row < 5 {
             self.lighting_cursor_pos += 1;
+            if self.lighting_is_painting {
+                self.set_pixel_color();
+            }
         }
     }
 
@@ -95,6 +124,9 @@ impl App {
         let col = self.lighting_cursor_pos / 6;
         if col > 0 {
             self.lighting_cursor_pos -= 6;
+            if self.lighting_is_painting {
+                self.set_pixel_color();
+            }
         }
     }
 
@@ -103,6 +135,9 @@ impl App {
         let col = self.lighting_cursor_pos / 6;
         if col < 15 {
             self.lighting_cursor_pos += 6;
+            if self.lighting_is_painting {
+                self.set_pixel_color();
+            }
         }
     }
 
@@ -155,12 +190,69 @@ impl App {
             self.lighting_data[off + 1] = pg;
             self.lighting_data[off + 2] = pb;
         }
+        if self.lighting_preview {
+            self.send_lighting_preview();
+        }
     }
 
     /// Clear all pixels in current data
     pub(in crate::tui) fn clear_userpic(&mut self) {
         self.lighting_data = vec![0; 288];
         self.status_msg = "Userpic cleared (unsaved)".to_string();
+        if self.lighting_preview {
+            self.send_lighting_preview();
+        }
+    }
+
+    /// Fill all pixels with current palette color
+    pub(in crate::tui) fn fill_userpic(&mut self) {
+        let (pr, pg, pb, _) = LIGHTING_PALETTE[self.lighting_palette_idx];
+        for i in 0..96 {
+            self.lighting_data[i * 3] = pr;
+            self.lighting_data[i * 3 + 1] = pg;
+            self.lighting_data[i * 3 + 2] = pb;
+        }
+        self.status_msg = "Userpic filled (unsaved)".to_string();
+        if self.lighting_preview {
+            self.send_lighting_preview();
+        }
+    }
+
+    /// Toggle live hardware preview
+    pub(in crate::tui) fn toggle_preview(&mut self) {
+        self.lighting_preview = !self.lighting_preview;
+        if self.lighting_preview {
+            self.status_msg = "Live preview ENABLED (Streaming mode)".to_string();
+            self.send_lighting_preview();
+        } else {
+            self.status_msg = "Live preview DISABLED".to_string();
+            // Re-apply current mode/slot to stop streaming
+            let slot = self.lighting_slot;
+            let mode = self.info.led_mode;
+            if let Some(ref kb) = self.keyboard {
+                let _ = kb.set_led_with_option(mode, self.info.led_brightness, self.info.led_speed, self.info.led_r, self.info.led_g, self.info.led_b, self.info.led_dazzle, slot);
+            }
+        }
+    }
+
+    /// Send current data to keyboard via streaming mode (25)
+    pub(in crate::tui) fn send_lighting_preview(&mut self) {
+        let Some(ref kb) = self.keyboard else { return };
+        
+        // Mode 25 expects 126 pixels (378 bytes)
+        let mut stream_data = vec![0u8; 378];
+        let len = self.lighting_data.len().min(378);
+        stream_data[..len].copy_from_slice(&self.lighting_data[..len]);
+
+        // Stream in 7 pages of 18 pixels (54 bytes) each
+        for page in 0..7 {
+            let start = page as usize * 54;
+            let end = start + 54;
+            let _ = kb.stream_led_page(page as u8, &stream_data[start..end]);
+        }
+        
+        // Finalize the frame
+        let _ = kb.stream_led_commit();
     }
 }
 
@@ -232,14 +324,17 @@ fn render_userpic_layout(f: &mut Frame, app: &App, area: Rect) {
         let b = app.lighting_data[off + 2];
         let color = Color::Rgb(r, g, b);
 
-        // Dynamic contrast for cursor/label
+        // Dynamic contrast for label
         let brightness = (r as f32 * 0.299 + g as f32 * 0.587 + b as f32 * 0.114) / 255.0;
         let contrast = if brightness > 0.5 { Color::Black } else { Color::White };
+
+        // Inverted color for cursor
+        let inv_color = Color::Rgb(255 - r, 255 - g, 255 - b);
 
         let cell_block = Block::default()
             .borders(Borders::ALL)
             .border_style(if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default().fg(inv_color).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
             })
@@ -248,16 +343,20 @@ fn render_userpic_layout(f: &mut Frame, app: &App, area: Rect) {
         let cell_rect = Rect::new(x, y, key_width, key_height);
         let inner_rect = cell_block.inner(cell_rect);
 
-        // Blinking-like effect for cursor: show key label if selected
+        // For cursor: use inverted block character
         let label = if is_selected { 
-            format!("[\u{2588}]") // cursor indicator
+            "[\u{2588}]".to_string() 
         } else {
             key_name.chars().take(3).collect()
         };
 
         let p = Paragraph::new(label)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(contrast).bg(color));
+            .style(if is_selected {
+                Style::default().fg(inv_color).bg(color)
+            } else {
+                Style::default().fg(contrast).bg(color)
+            });
         
         f.render_widget(cell_block, cell_rect);
         f.render_widget(p, inner_rect);
@@ -299,9 +398,21 @@ fn render_lighting_controls(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(format!("  RGB: #{:02X}{:02X}{:02X}", r, g, b)),
             Span::styled("  \u{2588}".repeat(4), Style::default().fg(Color::Rgb(r, g, b))),
         ]),
+        Line::from(vec![
+            Span::raw("Preview: "),
+            Span::styled(
+                if app.lighting_preview { "ENABLED (Live)" } else { "DISABLED" },
+                if app.lighting_preview { Style::default().fg(Color::Green).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::DarkGray) }
+            ),
+            Span::raw(" [p]"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Arrows: move  Space: paint  s: save  r: reload  c: clear",
+            "Arrows: move  Space: paint (hold to drag)  f: fill  p: preview  Backspace: clear key",
+            Style::default().fg(Color::DarkGray)
+        )),
+        Line::from(Span::styled(
+            "s: save to flash  r: reload from flash  c: clear all slots  Tab: next tab",
             Style::default().fg(Color::DarkGray)
         )),
     ];
